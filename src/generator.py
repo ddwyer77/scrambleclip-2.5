@@ -36,6 +36,10 @@ def generate_batch(num_videos=15, input_video_path=None, input_audio_path=None, 
         if progress_callback:
             progress_callback(0, f"Warning: Only {len(video_files)} videos found. Some clips will be repeated.")
     
+    # Track used segments across all generated videos
+    # Format: [(video_path, start_time, end_time), ...]
+    used_segments = []
+    
     try:
         # Load audio
         if progress_callback:
@@ -60,6 +64,7 @@ def generate_batch(num_videos=15, input_video_path=None, input_audio_path=None, 
                     selected_videos = random.choices(video_files, k=4)
                 
                 clips = []
+                video_segments = []  # Track segments used in this video
                 
                 # Process each selected video
                 for j, vid in enumerate(selected_videos):
@@ -69,7 +74,14 @@ def generate_batch(num_videos=15, input_video_path=None, input_audio_path=None, 
                             
                         # Get random clip with variable duration
                         clip_duration = random.uniform(3, 5)  # ±1 sec variability
-                        clip = get_random_clip(vid, duration=clip_duration)
+                        
+                        # Get a random clip that avoids previously used segments
+                        clip = get_random_clip(vid, duration=clip_duration, used_segments=used_segments)
+                        
+                        # Record this segment as used
+                        segment = (vid, clip.start, clip.end)
+                        used_segments.append(segment)
+                        video_segments.append(segment)
                         
                         # Pad to target aspect ratio
                         padded_clip = pad_clip_to_ratio(clip)
@@ -82,7 +94,12 @@ def generate_batch(num_videos=15, input_video_path=None, input_audio_path=None, 
                         # Try to get another clip from a random video
                         fallback_vid = random.choice(video_files)
                         try:
-                            clip = get_random_clip(fallback_vid, duration=4)
+                            clip = get_random_clip(fallback_vid, duration=4, used_segments=used_segments)
+                            # Record this segment as used
+                            segment = (fallback_vid, clip.start, clip.end)
+                            used_segments.append(segment)
+                            video_segments.append(segment)
+                            
                             padded_clip = pad_clip_to_ratio(clip)
                             clips.append(padded_clip)
                         except:
