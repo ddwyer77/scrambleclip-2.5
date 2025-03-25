@@ -1,6 +1,8 @@
 import glob
 import random
 from moviepy.editor import VideoFileClip
+from moviepy.video.fx.fadeout import fadeout
+from moviepy.video.fx.speedx import speedx
 
 def get_video_files(input_folder):
     return glob.glob(f"{input_folder}/*.mp4") + glob.glob(f"{input_folder}/*.mov")
@@ -86,29 +88,49 @@ def pad_clip_to_ratio(clip, target_ratio=(9,16)):
     """
     Pad a clip to the target aspect ratio (default 9:16).
     
-    For clips that are already 9:16, no padding is added.
-    For all other aspect ratios:
-    - Fit to full width (horizontal edges)
-    - Add black padding only on top and bottom
+    For any vertical video (height > width), we return it as is without padding.
+    Only landscape videos (width > height) receive padding to match the target ratio.
     """
+    # Check if the video is already vertical (height > width)
+    if clip.h >= clip.w:
+        # This is a vertical video - don't add any padding
+        return clip
+    
+    # For landscape videos (width > height), add padding to top and bottom
     clip_ratio = clip.w / clip.h
     target_aspect = target_ratio[0] / target_ratio[1]
     
-    # If already 9:16 (or very close), return as is
-    if abs(clip_ratio - target_aspect) < 0.01:
+    # Calculate the height needed for the target aspect ratio
+    target_height = int(clip.w / target_aspect)
+    
+    # Add padding to top and bottom to reach target height
+    padding = (target_height - clip.h) / 2
+    return clip.margin(top=int(padding), bottom=int(padding), color=(0,0,0))
+
+def prepare_clip_for_concat(clip, add_transitions=True):
+    """
+    Prepare a clip for concatenation by adding subtle effects
+    to create smoother transitions and prevent static frames.
+    
+    Args:
+        clip: VideoFileClip to prepare
+        add_transitions: Whether to add fade effects
+        
+    Returns:
+        Processed clip ready for concatenation
+    """
+    # Don't modify very short clips (less than 1.5 seconds)
+    if clip.duration < 1.5:
         return clip
     
-    # For all other aspect ratios, we want to fit to width
-    # Calculate the height needed for the target aspect ratio
-    target_height = clip.w / target_aspect
+    # Apply a subtle fadeout to the end to prevent static frames
+    if add_transitions:
+        # Short fadeout at the end (0.3 seconds)
+        clip = fadeout(clip, 0.3)
+        
+        # Add a very slight speed change to create more motion
+        # and reduce chances of static frames
+        speed_factor = random.uniform(0.95, 1.05)
+        clip = speedx(clip, speed_factor)
     
-    if target_height > clip.h:
-        # The clip is wider than 9:16 (landscape or wide)
-        # Add padding to top and bottom to reach target height
-        padding = (target_height - clip.h) / 2
-        return clip.margin(top=int(padding), bottom=int(padding), color=(0,0,0))
-    else:
-        # The clip is taller than 9:16 (narrow portrait)
-        # Resize to fit width while maintaining aspect ratio
-        resized_clip = clip.resize(width=clip.w)
-        return resized_clip
+    return clip
