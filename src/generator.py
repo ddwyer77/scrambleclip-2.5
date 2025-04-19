@@ -123,24 +123,22 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
         output_path = os.path.join(output_dir, f"output_{i+1:02d}.mp4")
         
         # Calculate clip parameters based on target duration
-        # For 16 second videos, adjust number and duration of clips
-        # Aim for ~10-12 clips with 1.5-2 seconds each to fit in 16 seconds
-        min_clip_count = 8  # Reduced to fit target duration
-        max_clip_count = 15
+        # For 16 second videos, aim for 8-12 clips with 1.5-2.5 seconds each
+        min_clip_count = 8
+        max_clip_count = 12
         num_clips = random.randint(min_clip_count, max_clip_count)
         
         # Calculate average clip duration to fit target duration
         avg_clip_duration = TARGET_DURATION / num_clips
         # Add some variation around the average
-        min_clip_dur = max(0.5, avg_clip_duration * 0.7)  # Min 0.5 seconds
-        max_clip_dur = avg_clip_duration * 1.3  # Max 1.3x the average
+        min_clip_dur = max(1.5, avg_clip_duration * 0.8)  # Min 1.5 seconds
+        max_clip_dur = min(3.0, avg_clip_duration * 1.2)  # Max 3.0 seconds
         
         # Randomly select clips and durations
         selected_clips = []
         total_duration = 0
         
         # Track the already used clips for this video to avoid repetition
-        # Keep last N clips to avoid repetition of similar clips
         used_clips_memory = []
         memory_size = min(5, len(input_clips) // 2)  # Remember last 5 clips or half of available clips
         
@@ -198,11 +196,6 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                 clip_duration = min(max_clip_dur, remaining_duration)
                 clip_duration = max(min_clip_dur, clip_duration)  # Ensure minimum duration
             
-            # Determine a random start time for the clip that avoids previously used segments
-            max_start = max(0, input_clip.duration - clip_duration)
-            if max_start <= 0:
-                continue  # Skip if the clip is too short
-            
             # Find available segments that haven't been used yet (globally or locally)
             available_segments = find_available_segments(
                 clip_index, clip_duration, input_clip.duration,
@@ -254,6 +247,67 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
             # If we've reached the target duration, stop adding clips
             if total_duration >= TARGET_DURATION:
                 break
+        
+        # If we don't have enough duration, add more clips
+        while total_duration < TARGET_DURATION and len(selected_clips) < max_clip_count * 2:
+            # Try to add more clips to reach target duration
+            try:
+                # Select a new clip
+                available_clip_indices = list(range(len(input_clips)))
+                clip_index = random.choice(available_clip_indices)
+                input_clip = input_clips[clip_index]
+                
+                # Calculate remaining duration needed
+                remaining_duration = TARGET_DURATION - total_duration
+                clip_duration = min(max_clip_dur, remaining_duration)
+                clip_duration = max(min_clip_dur, clip_duration)
+                
+                # Find available segment
+                available_segments = find_available_segments(
+                    clip_index, clip_duration, input_clip.duration,
+                    global_history=clip_history.get(clip_index, []),
+                    local_history=local_clip_history.get(clip_index, [])
+                )
+                
+                if available_segments:
+                    segment_start, segment_end = random.choice(available_segments)
+                    start_time = random.uniform(segment_start, segment_end - clip_duration)
+                    
+                    # Extract and process the subclip
+                    subclip = input_clip.subclip(start_time, start_time + clip_duration)
+                    processed_clip = ensure_consistent_dimensions(subclip)
+                    
+                    if use_effects and random.random() < 0.3:
+                        try:
+                            processed_clip = apply_smart_effects(processed_clip, intensity=0.3)
+                        except Exception as e:
+                            print(f"Error applying effects to clip: {e}")
+                    
+                    selected_clips.append(processed_clip)
+                    total_duration += clip_duration
+                    
+                    # Record usage
+                    used_segment = (start_time, start_time + clip_duration)
+                    if clip_index not in clip_history:
+                        clip_history[clip_index] = []
+                    clip_history[clip_index].append(used_segment)
+                    
+            except Exception as e:
+                print(f"Error adding additional clip: {e}")
+                break
+        
+        # If we still don't have enough duration, extend the last clip
+        if total_duration < TARGET_DURATION and selected_clips:
+            try:
+                last_clip = selected_clips[-1]
+                extension_needed = TARGET_DURATION - total_duration
+                if extension_needed > 0:
+                    # Loop the last clip to extend it
+                    extended_clip = loop(last_clip, duration=last_clip.duration + extension_needed)
+                    selected_clips[-1] = extended_clip
+                    total_duration = TARGET_DURATION
+            except Exception as e:
+                print(f"Error extending last clip: {e}")
         
         if not selected_clips:
             if progress_callback:

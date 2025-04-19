@@ -8,9 +8,13 @@ import traceback
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
+    # Apply Pillow compatibility patch
     print("Applying Pillow compatibility patch...")
-    # Import Pillow patch to handle ANTIALIAS compatibility
-    from src.pil_patch import *
+    import src.pil_patch
+    
+    # Configure MoviePy to use the correct ImageMagick binary
+    print("Configuring MoviePy with ImageMagick...")
+    import moviepy_config
     
     print("Importing PyQt GUI application...")
     # Import GUI application

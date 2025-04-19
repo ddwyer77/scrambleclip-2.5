@@ -20,7 +20,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 :: Launch the application
-echo Starting Scramble Clip 2...
+echo Launching Scramble Clip 2...
 python main.py
 
 :: If the application crashes, keep the console window open

@@ -59,6 +59,7 @@ env/
 
 # Application specific
 outputs/
+!outputs/README.txt
 *.mp4
 *.mov
 *.mp3

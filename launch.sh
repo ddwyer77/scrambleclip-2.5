@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Scramble Clip 2 Launcher Script for macOS/Linux
+# Scramble Clip 2 Launcher for macOS/Linux
 # Created by ClipmodeGo
 
 # Get the directory where the script is located
@@ -14,7 +14,7 @@ if ! command -v python3 &> /dev/null; then
 fi
 
 # Run the application
-echo "Starting Scramble Clip 2 by ClipmodeGo..."
+echo "Launching Scramble Clip 2..."
 python3 main.py
 
 # If the application crashes, keep the terminal open

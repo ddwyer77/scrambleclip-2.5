@@ -1,5 +1,12 @@
-Place your source video files (MP4 or MOV format) in this directory.
-The application will randomly select clips from these videos to create your output videos.
+# Input Videos Directory
+
+Place your source MP4 or MOV video files in this directory. These will be used by Scramble Clip 2 to generate randomized video clips.
+
+## Supported Formats
+- MP4 (.mp4)
+- QuickTime (.mov)
+
+The application will automatically detect and use these video files when generating output clips.
 
 For best results:
 1. Include at least 4 different videos

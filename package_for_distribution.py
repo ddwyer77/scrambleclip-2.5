@@ -1,121 +1,204 @@
 #!/usr/bin/env python3
 """
-Package Scramble Clip 2 for Distribution
+Package Scramble Clip 2 for distribution
 
-This script creates distribution packages for Scramble Clip 2 including:
-- ZIP archive
-- macOS DMG (on macOS only)
-- macOS App bundle (on macOS only)
-
-By ClipmodeGo
+This script creates:
+1. A ZIP file with all necessary files for all platforms
+2. A DMG file for macOS users
 """
 
 import os
 import sys
+import platform
 import shutil
 import subprocess
-from pathlib import Path
-
-def print_header(text):
-    """Print a nicely formatted header."""
-    print("\n" + "=" * 80)
-    print(f"   {text}")
-    print("=" * 80)
-
-def run_script(script_name):
-    """Run a Python script and return success status."""
-    if not os.path.exists(script_name):
-        print(f"Error: {script_name} not found.")
-        return False
-    
-    print(f"Running {script_name}...")
-    result = subprocess.run([sys.executable, script_name], 
-                           stdout=subprocess.PIPE, 
-                           stderr=subprocess.PIPE, 
-                           universal_newlines=True)
-    
-    print(result.stdout)
-    if result.returncode != 0:
-        print(f"Error running {script_name}:")
-        print(result.stderr)
-        return False
-    return True
+import time
+from zipfile import ZipFile, ZIP_DEFLATED
 
 def create_zip_package():
-    """Create a ZIP package."""
-    print_header("Creating ZIP Package")
-    return run_script("create_zip_package.py")
+    """Create a ZIP package with all necessary files"""
+    print("Creating ZIP package...")
+    
+    # Ensure dist directory exists
+    if not os.path.exists("dist"):
+        os.makedirs("dist")
+    
+    # Define the zip filename
+    zip_filename = "dist/ScrambleClip2.zip"
+    
+    # Create a new zip file
+    with ZipFile(zip_filename, 'w', ZIP_DEFLATED) as zipf:
+        # Add main Python files
+        for file in os.listdir("."):
+            if file.endswith(".py") or file.endswith(".sh") or file.endswith(".bat"):
+                zipf.write(file)
+        
+        # Add src directory
+        for root, _, files in os.walk("src"):
+            for file in files:
+                file_path = os.path.join(root, file)
+                zipf.write(file_path)
+        
+        # Add assets directory
+        for root, _, files in os.walk("assets"):
+            for file in files:
+                file_path = os.path.join(root, file)
+                zipf.write(file_path)
+        
+        # Add requirements.txt
+        if os.path.exists("requirements.txt"):
+            zipf.write("requirements.txt")
+        
+        # Add README
+        if os.path.exists("README.md"):
+            zipf.write("README.md")
+    
+    print(f"ZIP package created at {os.path.abspath(zip_filename)}")
+    return os.path.abspath(zip_filename)
 
 def create_macos_dmg():
-    """Create a macOS DMG."""
-    print_header("Creating macOS DMG")
+    """Create a DMG file for macOS users"""
+    if platform.system() != "Darwin":
+        print("DMG creation is only supported on macOS.")
+        return None
     
-    # First, create the app icon if it doesn't exist
-    if not os.path.exists("AppIcon.icns"):
-        print("App icon not found. Creating one...")
-        if not run_script("create_app_icon.py"):
-            print("Warning: Failed to create app icon. Continuing without it.")
+    print("Creating macOS DMG package...")
     
-    # Now create the DMG
-    return run_script("create_macos_dmg.py")
-
-def verify_files_exist():
-    """Verify that all required files exist."""
-    required_files = [
-        "main.py",
-        "src/generator.py",
-        "src/utils.py",
-        "src/pyqt_gui.py",
-        "requirements.txt"
-    ]
+    # Ensure dist directory exists
+    if not os.path.exists("dist"):
+        os.makedirs("dist")
     
-    missing_files = []
-    for file in required_files:
-        if not os.path.exists(file):
-            missing_files.append(file)
+    # Define the DMG filename
+    dmg_filename = "dist/ScrambleClip2.dmg"
     
-    if missing_files:
-        print("Error: The following required files are missing:")
-        for file in missing_files:
-            print(f"  - {file}")
-        return False
+    # Create a temporary directory for app bundle
+    temp_dir = "dist/temp_app"
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+    os.makedirs(temp_dir)
     
-    return True
+    # Create app bundle structure
+    app_dir = os.path.join(temp_dir, "ScrambleClip2.app")
+    contents_dir = os.path.join(app_dir, "Contents")
+    macos_dir = os.path.join(contents_dir, "MacOS")
+    resources_dir = os.path.join(contents_dir, "Resources")
+    
+    os.makedirs(macos_dir)
+    os.makedirs(resources_dir)
+    
+    # Create Info.plist
+    with open(os.path.join(contents_dir, "Info.plist"), "w") as f:
+        f.write("""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>Scramble Clip 2</string>
+    <key>CFBundleExecutable</key>
+    <string>ScrambleClip2</string>
+    <key>CFBundleIconFile</key>
+    <string>icon.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.clipmodego.scrambleclip2</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Scramble Clip 2</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>""")
+    
+    # Create executable shell script
+    with open(os.path.join(macos_dir, "ScrambleClip2"), "w") as f:
+        f.write("""#!/bin/bash
+cd "$(dirname "$0")"
+cd ../Resources
+python3 main.py
+""")
+    
+    # Make it executable
+    os.chmod(os.path.join(macos_dir, "ScrambleClip2"), 0o755)
+    
+    # Copy Python files to Resources
+    for file in os.listdir("."):
+        if file.endswith(".py"):
+            shutil.copy(file, resources_dir)
+    
+    # Copy src directory
+    shutil.copytree("src", os.path.join(resources_dir, "src"))
+    
+    # Copy assets directory
+    shutil.copytree("assets", os.path.join(resources_dir, "assets"))
+    
+    # Create outputs directory
+    os.makedirs(os.path.join(resources_dir, "outputs"), exist_ok=True)
+    
+    # Copy requirements.txt
+    if os.path.exists("requirements.txt"):
+        shutil.copy("requirements.txt", resources_dir)
+    
+    # Create icon if available, otherwise use a placeholder
+    icon_path = os.path.join("assets", "icon.png")
+    if os.path.exists(icon_path):
+        try:
+            # Try to convert PNG to ICNS
+            icns_path = os.path.join(resources_dir, "icon.icns")
+            subprocess.run(["sips", "-s", "format", "icns", icon_path, "--out", icns_path], 
+                          check=True, capture_output=True)
+        except (subprocess.SubprocessError, FileNotFoundError):
+            print("Warning: Could not convert icon to ICNS format.")
+    
+    # Create the DMG
+    try:
+        # Try to use create-dmg if available
+        subprocess.run([
+            "hdiutil", "create", "-volname", "Scramble Clip 2", 
+            "-srcfolder", temp_dir, "-ov", "-format", "UDZO", dmg_filename
+        ], check=True)
+        print(f"DMG package created at {os.path.abspath(dmg_filename)}")
+        return os.path.abspath(dmg_filename)
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        print(f"Error creating DMG: {e}")
+        return None
+    finally:
+        # Clean up temp directory
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
 
 def main():
-    """Main function to handle packaging."""
-    print_header("Packaging Scramble Clip 2 for Distribution")
+    """Main packaging function"""
+    print("Packaging Scramble Clip 2 for distribution...")
+    start_time = time.time()
     
-    if not verify_files_exist():
-        return False
+    # Create ZIP package
+    zip_path = create_zip_package()
     
-    # Always create the ZIP package
-    zip_success = create_zip_package()
+    # Create DMG package on macOS
+    dmg_path = None
+    if platform.system() == "Darwin":
+        dmg_path = create_macos_dmg()
     
-    # Create macOS specific packages if on macOS
-    if sys.platform == "darwin":
-        dmg_success = create_macos_dmg()
-        if not dmg_success:
-            print("Warning: Failed to create macOS DMG.")
-    else:
-        print("Not running on macOS, skipping DMG creation.")
+    # Print summary
+    elapsed_time = time.time() - start_time
+    print("\nPackaging completed in {:.2f} seconds.".format(elapsed_time))
+    print("\nPackages created:")
     
-    print_header("Packaging Complete")
+    if zip_path:
+        size_mb = os.path.getsize(zip_path) / (1024 * 1024)
+        print(f"- ZIP: {zip_path} ({size_mb:.2f} MB)")
     
-    # List created package files
-    print("Created package files:")
-    for file in os.listdir("."):
-        if file.endswith(".zip") or file.endswith(".dmg"):
-            print(f"  - {file} ({os.path.getsize(file) / (1024*1024):.2f} MB)")
+    if dmg_path:
+        size_mb = os.path.getsize(dmg_path) / (1024 * 1024)
+        print(f"- DMG: {dmg_path} ({size_mb:.2f} MB)")
     
-    # Print upload instructions
-    print("\nTo upload to your website:")
-    print("1. Copy the ZIP file (and DMG file if on macOS) to your web server")
-    print("2. Create a download link to the files on your website")
-    print("3. Consider adding installation instructions for your users")
-    
-    return zip_success
+    print("\nDistribution packages are ready!")
 
 if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1) 
+    main() 
