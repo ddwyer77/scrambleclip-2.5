@@ -61,7 +61,8 @@ def run_test_generation():
             max_clip_duration=2.5,
             output_dir=test_output_dir,
             use_effects=True,  # Enable effects for testing
-            progress_callback=lambda progress, message: print(f"Progress {progress}%: {message}")
+            progress_callback=lambda progress, message: print(f"Progress {progress}%: {message}"),
+            target_duration=16
         )
         
         if output_paths:

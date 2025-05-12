@@ -32,16 +32,17 @@ def main():
         
         # Generate just 1 video for testing with text overlay enabled
         print("Starting generation...")
-        generate_batch(
+        output_paths = generate_batch(
+            input_videos=[input_video_path],
+            audio_files=[input_audio_path],
             num_videos=1,
-            input_video_path=input_video_path,
-            input_audio_path=input_audio_path,
-            output_path=output_path,
+            output_dir=output_path,
             progress_callback=debug_progress_callback,
             use_ai=True,
             use_effects=False,
             use_text=True,  # Enable text overlay
-            custom_text=custom_text  # Use custom text
+            custom_text=custom_text,  # Use custom text
+            target_duration=16
         )
         
         # Check if video was created

@@ -4,30 +4,36 @@ import threading
 import platform
 import subprocess
 import shutil
+import json
 from pathlib import Path
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, 
     QWidget, QFrame, QLineEdit, QSpinBox, QListWidget, QProgressBar, QFileDialog,
     QMessageBox, QGroupBox, QGraphicsDropShadowEffect, QGridLayout, QCheckBox,
-    QDesktopWidget
+    QDesktopWidget, QFontComboBox, QComboBox, QSlider
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread
-from PyQt5.QtGui import QColor, QFont, QIcon, QPalette, QLinearGradient, QBrush, QPainter, QGradient
+from PyQt5.QtGui import QColor, QFont, QIcon, QPalette, QLinearGradient, QBrush, QPainter, QGradient, QPixmap
 
 # Add parent directory to path to import modules correctly
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.generator import generate_batch
 from src.utils import get_video_files
 
-# Define color scheme
+# Modern, clean color palette  
+# Primary accent is a calm blue, with neutral light greys for backgrounds.  
+# This palette aims for high-contrast readability and a more professional feel.
 COLORS = {
-    'primary': '#00E676',       # Primary green
-    'lighter': '#69F0AE',       # Lighter green
-    'darker_accent': '#00C853', # Darker green
-    'dark': '#121212',          # Dark background
-    'darker': '#1E1E1E',        # Slightly lighter dark
-    'darkest': '#0A0A0A',       # Darkest background
-    'text': '#FFFFFF'           # White text
+    # Warm orange accents
+    'primary': '#FFA726',        # Orange primary accent
+    'lighter': '#FFB74D',        # Lighter orange for hover and highlights
+    'darker_accent': '#FB8C00',  # Darker orange accent
+    # Light brown backgrounds
+    'dark': '#EFEBE9',           # Soft light brown background
+    'darker': '#D7CCC8',         # Slightly darker brown for sections
+    'darkest': '#FFFFFF',        # White for group boxes and cards
+    # Dark brown text for contrast
+    'text': '#4E342E'
 }
 
 # Define styled button with green gradient
@@ -37,11 +43,11 @@ class StyledButton(QPushButton):
         self.setStyleSheet(f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {COLORS['darker_accent']}, stop:1 {COLORS['primary']});
-                color: black;
+                color: {COLORS['darkest']};
                 border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
+                padding: 8px 18px;
+                border-radius: 6px;
+                font-weight: 600;
             }}
             QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {COLORS['primary']}, stop:1 {COLORS['lighter']});
@@ -64,17 +70,17 @@ class StyledGroupBox(QGroupBox):
         super().__init__(title, parent)
         self.setStyleSheet(f"""
             QGroupBox {{
-                background-color: {COLORS['darker']};
-                border: 1px solid {COLORS['darker_accent']};
-                border-radius: 6px;
+                background-color: {COLORS['darkest']};
+                border: 1px solid {COLORS['darker']};
+                border-radius: 8px;
                 margin-top: 1.5em;
-                font-weight: bold;
+                font-weight: 600;
                 color: {COLORS['primary']};
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 subcontrol-position: top center;
-                padding: 0 5px;
+                padding: 0 6px;
                 color: {COLORS['primary']};
             }}
         """)
@@ -114,8 +120,10 @@ class ScrambleClipGUI(QMainWindow):
         print("PyQt GUI initialized")
 
     def init_ui(self):
-        self.setWindowTitle("SCRAMBLE CLIP 2 by ClipmodeGo")
-        self.setMinimumSize(900, 700)
+        self.setWindowTitle("Scramble Clip 2.5")
+        # Increase minimum and initial window size for better usability
+        self.setMinimumSize(1200, 900)
+        self.resize(1200, 900)
         
         # Set the window icon
         icon_path = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
@@ -128,17 +136,20 @@ class ScrambleClipGUI(QMainWindow):
         # Create main layout
         main_layout = QVBoxLayout()
         
-        # Create header with title
-        header = QLabel("SCRAMBLE CLIP 2 by ClipmodeGo")
-        header.setStyleSheet(f"""
-            font-size: 24px;
-            font-weight: bold;
-            color: {COLORS['primary']};
-            padding: 15px;
-            background-color: {COLORS['darkest']};
-            border-bottom: 2px solid {COLORS['primary']};
-        """)
+        # Create header with logo image
+        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "scramble clip 2.5 logo 222 for build.png")
+        header = QLabel()
+        pixmap = QPixmap(logo_path)
+        # Scale banner to 10% of original size for a 90% reduction
+        if not pixmap.isNull():
+            new_width = int(pixmap.width() * 0.1)
+            new_height = int(pixmap.height() * 0.1)
+            scaled_pixmap = pixmap.scaled(new_width, new_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            header.setPixmap(scaled_pixmap)
+        else:
+            header.setText("Scramble Clip 2.5")
         header.setAlignment(Qt.AlignCenter)
+        header.setStyleSheet(f"background-color: {COLORS['darkest']}; padding: 10px;")
         
         # Create central widget with dark background
         central_widget = QWidget()
@@ -159,11 +170,11 @@ class ScrambleClipGUI(QMainWindow):
         self.input_video_path_label = QLineEdit(self.input_video_path)
         self.input_video_path_label.setReadOnly(True)
         self.input_video_path_label.setStyleSheet(f"""
-            background-color: {COLORS['darker']};
-            color: white;
-            border: 1px solid {COLORS['darkest']};
+            background-color: {COLORS['darkest']};
+            color: {COLORS['text']};
+            border: 1px solid {COLORS['darker']};
             border-radius: 4px;
-            padding: 5px;
+            padding: 6px;
         """)
         path_layout.addWidget(self.input_video_path_label, 0, 1)
         
@@ -176,11 +187,11 @@ class ScrambleClipGUI(QMainWindow):
         self.input_audio_path_label = QLineEdit(self.input_audio_path)
         self.input_audio_path_label.setReadOnly(True)
         self.input_audio_path_label.setStyleSheet(f"""
-            background-color: {COLORS['darker']};
-            color: white;
-            border: 1px solid {COLORS['darkest']};
+            background-color: {COLORS['darkest']};
+            color: {COLORS['text']};
+            border: 1px solid {COLORS['darker']};
             border-radius: 4px;
-            padding: 5px;
+            padding: 6px;
         """)
         path_layout.addWidget(self.input_audio_path_label, 1, 1)
         
@@ -193,11 +204,11 @@ class ScrambleClipGUI(QMainWindow):
         self.output_path_label = QLineEdit(self.output_path)
         self.output_path_label.setReadOnly(True)
         self.output_path_label.setStyleSheet(f"""
-            background-color: {COLORS['darker']};
-            color: white;
-            border: 1px solid {COLORS['darkest']};
+            background-color: {COLORS['darkest']};
+            color: {COLORS['text']};
+            border: 1px solid {COLORS['darker']};
             border-radius: 4px;
-            padding: 5px;
+            padding: 6px;
         """)
         path_layout.addWidget(self.output_path_label, 2, 1)
         
@@ -205,8 +216,56 @@ class ScrambleClipGUI(QMainWindow):
         browse_output_btn.clicked.connect(lambda: self.browse_directory("output"))
         path_layout.addWidget(browse_output_btn, 2, 2)
         
+        # Overlay video path row (row 3)
+        self.overlay_video_path = ""  # default empty
+        path_layout.addWidget(QLabel("Overlay Video:"), 3, 0)
+        self.overlay_video_path_label = QLineEdit(self.overlay_video_path)
+        self.overlay_video_path_label.setReadOnly(True)
+        self.overlay_video_path_label.setStyleSheet(f"""
+             background-color: {COLORS['darkest']};
+             color: {COLORS['text']};
+             border: 1px solid {COLORS['darker']};
+             border-radius: 4px;
+             padding: 6px;
+         """)
+        path_layout.addWidget(self.overlay_video_path_label, 3, 1)
+        self.browse_overlay_btn = StyledButton("Browse")
+        self.browse_overlay_btn.clicked.connect(lambda: self.browse_file("overlay_video"))
+        self.browse_overlay_btn.setEnabled(False)
+        path_layout.addWidget(self.browse_overlay_btn, 3, 2)
+        
+        # disable overlay path label initially
+        self.overlay_video_path_label.setEnabled(False)
+        
+        # Row 4: simple checkbox to quickly toggle overlay usage
+        self.use_overlay_checkbox = QCheckBox("Enable Overlay")
+        self.use_overlay_checkbox.setChecked(False)
+        self.use_overlay_checkbox.stateChanged.connect(lambda s: self.toggle_overlay_input(s))
+        path_layout.addWidget(self.use_overlay_checkbox, 4, 0, 1, 3)
+        
         path_group.setLayout(path_layout)
         container.addWidget(path_group)
+        
+        # ------------ Output settings ------------
+        output_opts_group = StyledGroupBox("Output Settings")
+        out_layout = QGridLayout()
+
+        out_layout.addWidget(QLabel("Target Duration (s):"), 0, 0)
+        self.duration_spinner = QSpinBox()
+        self.duration_spinner.setRange(5, 120)
+        self.duration_spinner.setValue(16)
+        self.duration_spinner.setSingleStep(1)
+        self.duration_spinner.setStyleSheet(f"""
+            background-color: {COLORS['darkest']};
+            color: {COLORS['text']};
+            border: 1px solid {COLORS['darker']};
+            border-radius: 4px;
+            padding: 4px;
+        """)
+        out_layout.addWidget(self.duration_spinner, 0, 1)
+
+        output_opts_group.setLayout(out_layout)
+        container.addWidget(output_opts_group)
         
         # Create video lists
         lists_layout = QHBoxLayout()
@@ -218,7 +277,7 @@ class ScrambleClipGUI(QMainWindow):
         self.input_video_list = QListWidget()
         self.input_video_list.setStyleSheet(f"""
             background-color: {COLORS['darker']};
-            color: white;
+            color: {COLORS['text']};
             border: 1px solid {COLORS['darkest']};
             border-radius: 4px;
             padding: 5px;
@@ -249,7 +308,7 @@ class ScrambleClipGUI(QMainWindow):
         self.output_video_list = QListWidget()
         self.output_video_list.setStyleSheet(f"""
             background-color: {COLORS['darker']};
-            color: white;
+            color: {COLORS['text']};
             border: 1px solid {COLORS['darkest']};
             border-radius: 4px;
             padding: 5px;
@@ -288,12 +347,24 @@ class ScrambleClipGUI(QMainWindow):
         self.num_videos_spinner.setValue(5)
         self.num_videos_spinner.setStyleSheet(f"""
             background-color: {COLORS['darker']};
-            color: white;
+            color: {COLORS['text']};
             border: 1px solid {COLORS['darkest']};
             border-radius: 4px;
             padding: 5px;
         """)
         controls_layout.addWidget(self.num_videos_spinner)
+        
+        # Base name for output files
+        controls_layout.addWidget(QLabel("Base name:"))
+        self.basename_input = QLineEdit("output")
+        self.basename_input.setStyleSheet(f"""
+            background-color: {COLORS['darker']};
+            color: {COLORS['text']};
+            border: 1px solid {COLORS['darkest']};
+            border-radius: 4px;
+            padding: 4px;
+        """)
+        controls_layout.addWidget(self.basename_input)
         
         # Add checkboxes to layout
         checks_layout = QVBoxLayout() 
@@ -302,7 +373,7 @@ class ScrambleClipGUI(QMainWindow):
         self.use_ai_checkbox = QCheckBox("Use AI for smart clip selection")
         self.use_ai_checkbox.setChecked(True)
         self.use_ai_checkbox.setStyleSheet(f"""
-            color: white;
+            color: {COLORS['text']};
             font-weight: bold;
             padding: 5px;
         """)
@@ -320,7 +391,7 @@ class ScrambleClipGUI(QMainWindow):
         self.use_effects_checkbox = QCheckBox("Add AI-powered effects & transitions")
         self.use_effects_checkbox.setChecked(False)
         self.use_effects_checkbox.setStyleSheet(f"""
-            color: white;
+            color: {COLORS['text']};
             font-weight: bold;
             padding: 5px;
         """)
@@ -334,11 +405,32 @@ class ScrambleClipGUI(QMainWindow):
         )
         checks_layout.addWidget(self.use_effects_checkbox)
         
+        # Effects style dropdown (Classic / Graincore)
+        effects_style_layout = QHBoxLayout()
+        self.effects_style_label = QLabel("Effects style:")
+        self.effects_style_label.setStyleSheet(f"color: {COLORS['text']}; padding: 5px;")
+        self.effects_style_combo = QComboBox()
+        self.effects_style_combo.addItems(["Classic", "Graincore"])
+        # Initially hidden
+        self.effects_style_label.setVisible(False)
+        self.effects_style_combo.setVisible(False)
+        effects_style_layout.addWidget(self.effects_style_label)
+        effects_style_layout.addWidget(self.effects_style_combo)
+        checks_layout.addLayout(effects_style_layout)
+        # Show/hide effects style when AI-effects toggled
+        def _toggle_effects_style(state):
+            visible = (state == Qt.Checked)
+            self.effects_style_label.setVisible(visible)
+            self.effects_style_combo.setVisible(visible)
+            self.intensity_label.setVisible(visible)
+            self.intensity_slider.setVisible(visible)
+        self.use_effects_checkbox.stateChanged.connect(_toggle_effects_style)
+        
         # Add Text Overlay checkbox
         self.use_text_checkbox = QCheckBox("Add text to videos")
         self.use_text_checkbox.setChecked(False)
         self.use_text_checkbox.setStyleSheet(f"""
-            color: white;
+            color: {COLORS['text']};
             font-weight: bold;
             padding: 5px;
         """)
@@ -358,29 +450,98 @@ class ScrambleClipGUI(QMainWindow):
             "If not installed, a simplified text style will be used."
         )
         
-        # Add the checkboxes layout to the main layout
-        gen_layout.addLayout(controls_layout)
-        gen_layout.addLayout(checks_layout)
-        
-        # Add text input field for custom text
-        self.text_input_layout = QHBoxLayout()
-        self.text_input_label = QLabel("Custom text:")
-        self.text_input_label.setStyleSheet("color: white;")
-        self.text_input = QLineEdit()
-        self.text_input.setPlaceholderText("Enter custom text for videos...")
-        self.text_input.setStyleSheet(f"""
+        # Speed factor dropdown
+        speed_layout = QHBoxLayout()
+        speed_label = QLabel("Speed:")
+        speed_label.setStyleSheet(f"color: {COLORS['text']}; padding: 5px;")
+        self.speed_combo = QComboBox()
+        self.speed_combo.addItems(["Normal (1.0x)", "1.25x", "1.5x", "1.75x"])
+        self.speed_combo.setStyleSheet(f"""
             background-color: {COLORS['darker']};
-            color: white;
+            color: {COLORS['text']};
             border: 1px solid {COLORS['darkest']};
             border-radius: 4px;
             padding: 5px;
         """)
-        self.text_input_layout.addWidget(self.text_input_label)
-        self.text_input_layout.addWidget(self.text_input)
+        speed_layout.addWidget(speed_label)
+        speed_layout.addWidget(self.speed_combo)
+        checks_layout.addLayout(speed_layout)
         
-        # Initially hide the text input
+        # Intensity slider (0-100)
+        intensity_layout = QHBoxLayout()
+        self.intensity_label = QLabel("Intensity: 50")
+        self.intensity_label.setStyleSheet(f"color: {COLORS['text']}; padding: 5px;")
+        self.intensity_slider = QSlider(Qt.Horizontal)
+        self.intensity_slider.setRange(0, 100)
+        self.intensity_slider.setValue(50)
+        self.intensity_slider.setTickPosition(QSlider.TicksBelow)
+        self.intensity_slider.setTickInterval(10)
+        self.intensity_slider.setStyleSheet(f"margin-left:10px; margin-right:10px;")
+        self.intensity_slider.valueChanged.connect(lambda v: self.intensity_label.setText(f"Intensity: {v}"))
+        # hide initially
+        self.intensity_label.setVisible(False)
+        self.intensity_slider.setVisible(False)
+        intensity_layout.addWidget(self.intensity_label)
+        intensity_layout.addWidget(self.intensity_slider)
+        checks_layout.addLayout(intensity_layout)
+        
+        # Add the checkboxes layout to the main layout
+        gen_layout.addLayout(controls_layout)
+        gen_layout.addLayout(checks_layout)
+        
+        # Add text input field for custom text and formatting controls
+        self.text_input_layout = QHBoxLayout()
+        self.text_input_label = QLabel("Custom text:")
+        self.text_input_label.setStyleSheet(f"color: {COLORS['text']};")
+        self.text_input = QLineEdit()
+        # Font selection dropdown
+        self.font_combo = QFontComboBox()
+        self.font_combo.setCurrentFont(QFont("Arial"))
+        self.font_combo.setStyleSheet(f"""
+            background-color: {COLORS['darker']};
+            color: {COLORS['text']};
+            border: 1px solid {COLORS['darkest']};
+            border-radius: 4px;
+            padding: 5px;
+        """)
+        # Style toggles
+        self.bold_checkbox = QCheckBox("Bold")
+        self.italic_checkbox = QCheckBox("Italic")
+        self.underline_checkbox = QCheckBox("Underline")
+        # Position dropdown
+        self.position_combo = QComboBox()
+        self.position_combo.addItems(["Top", "Center", "Bottom"])
+        self.position_combo.setCurrentIndex(0)  # Default Top
+        self.position_combo.setStyleSheet(f"""
+            background-color: {COLORS['darker']};
+            color: {COLORS['text']};
+            border: 1px solid {COLORS['darkest']};
+            border-radius: 4px;
+            padding: 5px;
+        """)
+        # Style toggles styling and visibility
+        for cb in (self.bold_checkbox, self.italic_checkbox, self.underline_checkbox):
+            cb.setStyleSheet(f"color: {COLORS['text']}; padding: 5px;")
+            cb.setVisible(False)
+        self.position_combo.setVisible(False)
+        # Initially hide text and controls
         self.text_input_label.setVisible(False)
         self.text_input.setVisible(False)
+        self.font_combo.setVisible(False)
+        self.bold_checkbox.setVisible(False)
+        self.italic_checkbox.setVisible(False)
+        self.underline_checkbox.setVisible(False)
+        # Add widgets to layout
+        self.text_input_layout.addWidget(self.text_input_label)
+        self.text_input_layout.addWidget(self.text_input)
+        self.text_input_layout.addWidget(self.font_combo)
+        self.text_input_layout.addWidget(self.bold_checkbox)
+        self.text_input_layout.addWidget(self.italic_checkbox)
+        self.text_input_layout.addWidget(self.underline_checkbox)
+        self.text_input_layout.addWidget(self.position_combo)
+        
+        # Initially hide the text input
+        # (Visibility already set for label, input, and controls)
         
         # Add the text input layout to controls layout
         gen_layout.addLayout(self.text_input_layout)
@@ -398,6 +559,21 @@ class ScrambleClipGUI(QMainWindow):
         generate_btn.setMinimumWidth(150)
         buttons_layout.addWidget(generate_btn)
         
+        # Save / Load project buttons
+        save_btn = StyledButton("Save Project")
+        save_btn.clicked.connect(self.save_project)
+        buttons_layout.addWidget(save_btn)
+
+        load_btn = StyledButton("Load Project")
+        load_btn.clicked.connect(self.load_project)
+        buttons_layout.addWidget(load_btn)
+        
+        # Add Cancel Generation button
+        self.cancel_btn = StyledButton("Cancel Generation")
+        self.cancel_btn.clicked.connect(self.cancel_generation)
+        self.cancel_btn.setEnabled(False)
+        buttons_layout.addWidget(self.cancel_btn)
+        
         gen_layout.addLayout(buttons_layout)
         
         # Progress bar and status
@@ -408,7 +584,7 @@ class ScrambleClipGUI(QMainWindow):
         self.progress_bar.setStyleSheet(f"""
             QProgressBar {{
                 background-color: {COLORS['darker']};
-                color: white;
+                color: {COLORS['text']};
                 border: 1px solid {COLORS['darkest']};
                 border-radius: 4px;
                 padding: 1px;
@@ -423,7 +599,7 @@ class ScrambleClipGUI(QMainWindow):
         
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet(f"""
-            color: {COLORS['lighter']};
+            color: {COLORS['text']};
             padding: 5px;
         """)
         progress_layout.addWidget(self.status_label)
@@ -435,7 +611,7 @@ class ScrambleClipGUI(QMainWindow):
         # Add footer
         footer = QLabel("A tool by ClipmodeGo")
         footer.setStyleSheet(f"""
-            color: {COLORS['lighter']};
+            color: {COLORS['text']};
             padding: 10px;
             background-color: {COLORS['darkest']};
             border-top: 1px solid {COLORS['primary']};
@@ -589,13 +765,22 @@ class ScrambleClipGUI(QMainWindow):
             self,
             f"Select {file_type.title()} File",
             "",
-            "Audio Files (*.mp3 *.wav *.ogg)" if file_type == "input_audio" else "All Files (*.*)"
+            (
+                "Audio Files (*.mp3 *.wav *.ogg)" if file_type == "input_audio" else
+                "Video Files (*.mov *.mp4 *.webm *.mkv)" if file_type == "overlay_video" else
+                "All Files (*.*)"
+            )
         )
         
         if file_path:
             if file_type == "input_audio":
                 self.input_audio_path = file_path
                 self.input_audio_path_label.setText(file_path)
+            elif file_type == "overlay_video":
+                self.overlay_video_path = file_path
+                self.overlay_video_path_label.setText(file_path)
+                if not self.use_overlay_checkbox.isChecked():
+                    self.use_overlay_checkbox.setChecked(True)
     
     def generate_videos(self):
         """Generate videos with the selected settings."""
@@ -639,6 +824,8 @@ class ScrambleClipGUI(QMainWindow):
         print(f"- Input videos: {input_videos[:5] if len(input_videos) >= 5 else input_videos}... ({len(input_videos)} total)")
         print(f"- Input audio: {self.input_audio_path}")
         print(f"- Output directory: {self.output_path}")
+        print(f"- Target duration: {self.duration_spinner.value()}s")
+        print(f"- Overlay enabled: {self.use_overlay_checkbox.isChecked()}  Path: {self.overlay_video_path}")
         
         # Update UI
         self.status_label.setText("Starting generation...")
@@ -647,6 +834,8 @@ class ScrambleClipGUI(QMainWindow):
         
         # Disable UI
         self.setEnabled(False)
+        # Enable cancel button during generation
+        self.cancel_btn.setEnabled(True)
         QApplication.processEvents()
         
         try:
@@ -672,10 +861,21 @@ class ScrambleClipGUI(QMainWindow):
                 input_video_path=self.input_video_path,
                 input_audio_path=self.input_audio_path,
                 output_path=self.output_path,
+                base_name=self.basename_input.text(),
+                target_duration=self.duration_spinner.value(),
+                overlay_video_path=self.overlay_video_path if self.use_overlay_checkbox.isChecked() else None,
                 use_ai=use_ai,
                 use_effects=use_effects,
                 use_text=use_text,
-                custom_text=custom_text
+                custom_text=custom_text,
+                font_name=self.font_combo.currentFont().family(),
+                bold=self.bold_checkbox.isChecked(),
+                italic=self.italic_checkbox.isChecked(),
+                underline=self.underline_checkbox.isChecked(),
+                text_position=self.position_combo.currentText().lower(),
+                speed_factor=self.get_speed_factor(),
+                effects_intensity=self.intensity_slider.value(),
+                effects_style=self.effects_style_combo.currentText().lower()
             )
             
             # Move worker to thread
@@ -693,6 +893,8 @@ class ScrambleClipGUI(QMainWindow):
             # Start thread
             self.generate_thread.start()
             
+            # Return immediately, allow cancel during generation
+            return
         except Exception as e:
             self.setEnabled(True)
             import traceback
@@ -704,6 +906,8 @@ class ScrambleClipGUI(QMainWindow):
     def show_error(self, message):
         """Show error message (called from main thread)."""
         self.setEnabled(True)  # Re-enable UI
+        # Disable cancel button
+        self.cancel_btn.setEnabled(False)
         
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Error")
@@ -732,9 +936,12 @@ class ScrambleClipGUI(QMainWindow):
     def generation_finished(self):
         """Handle generation completion."""
         self.setEnabled(True)
+        # Disable cancel button when done
+        self.cancel_btn.setEnabled(False)
         
-        # Check if output directory contains any generated videos
-        output_files = [f for f in os.listdir(self.output_path) if f.endswith('.mp4') and f.startswith('output_')]
+        # Match files based on base name prefix
+        prefix = self.basename_input.text() or 'output'
+        output_files = [f for f in os.listdir(self.output_path) if f.endswith('.mp4') and f.startswith(f"{prefix}_")]
         print(f"Found {len(output_files)} output files in {self.output_path}")
         
         if not output_files:
@@ -824,6 +1031,11 @@ class ScrambleClipGUI(QMainWindow):
         if state == Qt.Checked:
             self.text_input_label.setVisible(True)
             self.text_input.setVisible(True)
+            self.font_combo.setVisible(True)
+            self.bold_checkbox.setVisible(True)
+            self.italic_checkbox.setVisible(True)
+            self.underline_checkbox.setVisible(True)
+            self.position_combo.setVisible(True)
             
             # First time the text checkbox is checked, show ImageMagick info
             if not hasattr(self, '_text_info_shown'):
@@ -845,6 +1057,11 @@ class ScrambleClipGUI(QMainWindow):
         else:
             self.text_input_label.setVisible(False)
             self.text_input.setVisible(False)
+            self.font_combo.setVisible(False)
+            self.bold_checkbox.setVisible(False)
+            self.italic_checkbox.setVisible(False)
+            self.underline_checkbox.setVisible(False)
+            self.position_combo.setVisible(False)
 
     # Add tooltip for the AI feature
     def use_ai_checkbox_tooltip(self):
@@ -868,22 +1085,157 @@ class ScrambleClipGUI(QMainWindow):
             "Effects are chosen based on clip content and energy."
         )
 
+    def cancel_generation(self):
+        """Cancel the ongoing video generation."""
+        if hasattr(self, 'generate_thread') and self.generate_thread.isRunning():
+            # Terminate the thread (force stop)
+            self.generate_thread.terminate()
+            self.generate_thread.wait()
+        self.setEnabled(True)
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Generation canceled")
+        self.cancel_btn.setEnabled(False)
+
+    def get_speed_factor(self):
+        mapping = {
+            0: 1.0,
+            1: 1.25,
+            2: 1.5,
+            3: 1.75
+        }
+        return mapping.get(self.speed_combo.currentIndex(), 1.0)
+
+    # ---------- Project save/load ----------
+    def collect_state(self):
+        """Return dict representing current UI state."""
+        # Safely get selected effects style or default
+        combo = getattr(self, 'effects_style_combo', None)
+        effects_style = combo.currentText() if combo else 'classic'
+        state = {
+            "input_video_path": self.input_video_path_label.text(),
+            "input_audio_path": self.input_audio_path_label.text(),
+            "output_path": self.output_path_label.text(),
+            "num_videos": self.num_videos_spinner.value(),
+            "base_name": self.basename_input.text(),
+            "use_ai": self.use_ai_checkbox.isChecked(),
+            "use_effects": self.use_effects_checkbox.isChecked(),
+            "effects_style": effects_style,
+            "use_text": self.use_text_checkbox.isChecked(),
+            "custom_text": self.text_input.text(),
+            "font_name": self.font_combo.currentFont().family(),
+            "bold": self.bold_checkbox.isChecked(),
+            "italic": self.italic_checkbox.isChecked(),
+            "underline": self.underline_checkbox.isChecked(),
+            "text_position": self.position_combo.currentText(),
+            "speed_index": self.speed_combo.currentIndex(),
+            "effects_intensity": self.intensity_slider.value(),
+            "overlay_video_path": self.overlay_video_path,
+            "use_overlay": self.use_overlay_checkbox.isChecked(),
+            "duration": self.duration_spinner.value()
+        }
+        return state
+
+    def apply_state(self, state):
+        """Apply state dict to UI."""
+        self.input_video_path_label.setText(state.get("input_video_path", self.input_video_path))
+        self.input_audio_path_label.setText(state.get("input_audio_path", self.input_audio_path))
+        self.output_path_label.setText(state.get("output_path", self.output_path))
+
+        self.num_videos_spinner.setValue(state.get("num_videos", 5))
+        self.use_ai_checkbox.setChecked(state.get("use_ai", True))
+        self.use_effects_checkbox.setChecked(state.get("use_effects", False))
+        # Safely restore effects style selection
+        combo = getattr(self, 'effects_style_combo', None)
+        if combo:
+            combo.setCurrentText(state.get("effects_style", "Classic"))
+        self.use_text_checkbox.setChecked(state.get("use_text", False))
+        self.text_input.setText(state.get("custom_text", ""))
+
+        # font
+        font_name = state.get("font_name", "Arial")
+        self.font_combo.setCurrentFont(QFont(font_name))
+        self.bold_checkbox.setChecked(state.get("bold", False))
+        self.italic_checkbox.setChecked(state.get("italic", False))
+        self.underline_checkbox.setChecked(state.get("underline", False))
+        self.position_combo.setCurrentText(state.get("text_position", "Top"))
+        self.speed_combo.setCurrentIndex(state.get("speed_index", 0))
+        self.intensity_slider.setValue(state.get("effects_intensity", 50))
+
+        # overlay video
+        self.overlay_video_path = state.get("overlay_video_path", "")
+        self.overlay_video_path_label.setText(self.overlay_video_path)
+
+        # use overlay
+        self.use_overlay_checkbox.setChecked(state.get("use_overlay", False))
+
+        # duration
+        self.duration_spinner.setValue(state.get("duration", 16))
+
+        # Restore base name
+        self.basename_input.setText(state.get("base_name", "output"))
+
+        # Refresh lists with new paths
+        self.refresh_video_lists()
+
+    def save_project(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "Scramble Project (*.scp)", options=options)
+        if file_path:
+            if not file_path.endswith(".scp"):
+                file_path += ".scp"
+            try:
+                with open(file_path, "w") as f:
+                    json.dump(self.collect_state(), f, indent=2)
+                QMessageBox.information(self, "Saved", f"Project saved to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not save project: {e}")
+
+    def load_project(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "Scramble Project (*.scp)", options=options)
+        if file_path:
+            try:
+                with open(file_path, "r") as f:
+                    state = json.load(f)
+                self.apply_state(state)
+                QMessageBox.information(self, "Loaded", f"Project loaded from {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not load project: {e}")
+
+    def toggle_overlay_input(self, state):
+        """Enable/disable overlay controls visibility."""
+        enabled = state == Qt.Checked
+        self.overlay_video_path_label.setEnabled(enabled)
+        self.browse_overlay_btn.setEnabled(enabled)
+        # nothing else for now
+
 class GenerateWorker(QObject):
     """Worker thread for video generation."""
     progress = pyqtSignal(int, str)
     finished = pyqtSignal()
     error = pyqtSignal(str)
     
-    def __init__(self, num_videos, input_video_path, input_audio_path, output_path, use_ai=True, use_effects=False, use_text=False, custom_text=None):
+    def __init__(self, num_videos, input_video_path, input_audio_path, output_path, base_name="output", target_duration=16, overlay_video_path=None, use_ai=True, use_effects=False, use_text=False, custom_text=None, font_name=None, bold=False, italic=False, underline=False, text_position="top", speed_factor=1.0, effects_intensity=50, effects_style='classic'):
         super().__init__()
         self.num_videos = num_videos
         self.input_video_path = input_video_path
         self.input_audio_path = input_audio_path
         self.output_path = output_path
+        self.base_name = base_name
+        self.target_duration = target_duration
+        self.overlay_video_path = overlay_video_path
         self.use_ai = use_ai
         self.use_effects = use_effects
         self.use_text = use_text
         self.custom_text = custom_text
+        self.font_name = font_name
+        self.bold = bold
+        self.italic = italic
+        self.underline = underline
+        self.text_position = text_position
+        self.speed_factor = speed_factor
+        self.effects_intensity = effects_intensity
+        self.effects_style = effects_style
     
     def run(self):
         """Run the video generation process."""
@@ -893,6 +1245,8 @@ class GenerateWorker(QObject):
             print(f"- Videos: {self.num_videos}")
             print(f"- Input video path: {self.input_video_path}")
             print(f"- Input audio path: {self.input_audio_path}")
+            print(f"- Overlay video path: {self.overlay_video_path}")
+            print(f"- Target duration: {self.target_duration}s")
             print(f"- Output path: {self.output_path}")
             print(f"- Use AI: {self.use_ai}")
             print(f"- Use Effects: {self.use_effects}")
@@ -908,6 +1262,12 @@ class GenerateWorker(QObject):
                 self.error.emit(f"Input audio path does not exist: {self.input_audio_path}")
                 return
                 
+            # Optional overlay video path check (only if provided)
+            if self.overlay_video_path:
+                if not os.path.exists(self.overlay_video_path):
+                    self.error.emit(f"Overlay video path does not exist: {self.overlay_video_path}")
+                    return
+            
             # Create output directory if it doesn't exist
             os.makedirs(self.output_path, exist_ok=True)
             
@@ -932,9 +1292,20 @@ class GenerateWorker(QObject):
                 min_clip_duration=1.5,
                 max_clip_duration=3.5,
                 output_dir=self.output_path,
+                base_name=self.base_name,
                 use_effects=self.use_effects,
                 use_text=self.use_text,
                 custom_text=self.custom_text,
+                font_name=self.font_name,
+                bold=self.bold,
+                italic=self.italic,
+                underline=self.underline,
+                text_position=self.text_position,
+                speed_factor=self.speed_factor,
+                effects_intensity=self.effects_intensity,
+                effects_style=self.effects_style,
+                overlay_video_path=self.overlay_video_path if self.overlay_video_path else None,
+                target_duration=self.target_duration,
                 progress_callback=progress_callback
             )
             

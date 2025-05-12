@@ -29,13 +29,12 @@ def main():
         # Generate just 1 video for testing
         print("Starting generation...")
         generate_batch(
+            input_videos=input_video_path,
+            audio_files=[input_audio_path],
             num_videos=1,
-            input_video_path=input_video_path,
-            input_audio_path=input_audio_path,
-            output_path=output_path,
+            output_dir=output_path,
             progress_callback=debug_progress_callback,
-            use_ai=True,
-            use_effects=False
+            target_duration=16
         )
         
         # Check if video was created

@@ -4,17 +4,14 @@ import hashlib
 import numpy as np
 from collections import defaultdict
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, TextClip, ColorClip
-# Import specific effects
+# Import specific effects for transitions only
 from moviepy.video.fx.loop import loop
 from moviepy.video.fx.fadein import fadein
 from moviepy.video.fx.fadeout import fadeout
-from moviepy.video.fx.colorx import colorx
 from moviepy.video.fx.crop import crop
-from moviepy.video.fx.mirror_x import mirror_x
-from moviepy.video.fx.mirror_y import mirror_y
-from moviepy.video.fx.time_symmetrize import time_symmetrize
-from moviepy.video.fx.invert_colors import invert_colors
-from moviepy.video.fx.blackwhite import blackwhite
+from moviepy.video.fx.colorx import colorx  # used for preview fades
+from moviepy.video.fx.speedx import speedx
+import subprocess, tempfile, os, shutil
 
 from src.utils import get_video_files, get_random_clip, pad_clip_to_ratio, prepare_clip_for_concat
 from src.video_analysis import VideoContentAnalyzer
@@ -30,9 +27,16 @@ OUTPUT_PATH = "../outputs"
 # Initialize video analyzer
 video_analyzer = VideoContentAnalyzer()
 
+# Time-margin (sec) we leave between chosen sub-clip end and source video end to avoid ffprobe rounding
+SAFE_MARGIN = 0.25  # seconds
+
 def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, max_clips=30, 
-                   min_clip_duration=1.5, max_clip_duration=3.5, output_dir="outputs", 
-                   use_effects=False, use_text=False, custom_text=None, progress_callback=None):
+                   min_clip_duration=1.5, max_clip_duration=3.5, output_dir="outputs", base_name="output",
+                   use_effects=False, use_text=False, custom_text=None,
+                   font_name="Arial", bold=False, italic=False, underline=False,
+                   text_position="top", speed_factor=1.0, effects_intensity=50, effects_style="classic",
+                   overlay_video_path=None,
+                   progress_callback=None, target_duration=16.0):
     """
     Generate a batch of videos by randomly selecting clips from input videos
     and concatenating them.
@@ -46,16 +50,27 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
         min_clip_duration (float): Minimum duration of each clip in seconds
         max_clip_duration (float): Maximum duration of each clip in seconds
         output_dir (str): Directory to save output videos
+        base_name (str): Base name for output video files
         use_effects (bool): Whether to use AI effects and transitions
         use_text (bool): Whether to add text overlay to videos
         custom_text (str): Custom text to use (if None, random captions will be used)
+        font_name (str): Font name to use for text overlay
+        bold (bool): Whether to use bold font for text overlay
+        italic (bool): Whether to use italic font for text overlay
+        underline (bool): Whether to use underline font for text overlay
+        text_position (str): "top", "center", or "bottom" overlay region
+        speed_factor (float): Speed multiplier for final output
+        effects_intensity (int): 0-100 slider controlling how strong effects are
+        effects_style (str): classic or graincore etc.
+        overlay_video_path (str, optional): Path to an overlay video
         progress_callback (callable): Function to report progress (progress_pct, status_message)
+        target_duration (float): Target duration for output videos in seconds
     
     Returns:
         list: Paths to the generated video files
     """
-    # Target duration for output videos (16 seconds)
-    TARGET_DURATION = 16.0
+    # Target duration for output videos (in seconds)
+    TARGET_DURATION = target_duration
     
     if not input_videos:
         raise ValueError("No input videos provided")
@@ -88,6 +103,13 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
     if not input_clips:
         raise ValueError("No valid input videos could be loaded")
     
+    # Check if we have enough input clips
+    if len(input_clips) < 2:
+        if progress_callback:
+            progress_callback(5, "Warning: Only one input video available. This may limit clip variety.")
+        else:
+            print("Warning: Only one input video available. This may limit clip variety.")
+    
     # Create output directory if it doesn't exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -111,6 +133,9 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
     TARGET_WIDTH = 1080
     TARGET_HEIGHT = 1920
     
+    # Normalize intensity between 0 and 1 for internal use
+    intensity_norm = max(0, min(effects_intensity, 100)) / 100.0
+    
     for i in range(num_videos):
         # Calculate overall progress: each video is worth (90/num_videos)% of progress
         base_progress = 10 + (i * (80 / num_videos))
@@ -118,9 +143,9 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
         if progress_callback:
             progress_callback(int(base_progress), f"Building video {i+1}/{num_videos}...")
         else:
-            print(f"Building {output_dir}/output_{i+1:02d}.mp4 using MoviePy...")
+            print(f"Building {output_dir}/{base_name}_{i+1:02d}.mp4 using MoviePy...")
         
-        output_path = os.path.join(output_dir, f"output_{i+1:02d}.mp4")
+        output_path = os.path.join(output_dir, f"{base_name}_{i+1:02d}.mp4")
         
         # Calculate clip parameters based on target duration
         # For 16 second videos, aim for 8-12 clips with 1.5-2.5 seconds each
@@ -182,6 +207,15 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
             if len(used_clips_memory) > memory_size:
                 used_clips_memory.pop(0)  # Remove oldest
             
+            # Avoid selecting the same clip consecutively
+            if selected_clips:
+                last_clip_index = used_clips_memory[-1]  # Use the last used clip index
+                if clip_index == last_clip_index:
+                    available_clip_indices.remove(clip_index)
+                    if available_clip_indices:
+                        clip_index = random.choice(available_clip_indices)
+                        input_clip = input_clips[clip_index]
+
             # Calculate remaining duration needed to hit the target
             remaining_clips = num_clips - j
             remaining_duration = max(0, TARGET_DURATION - total_duration)
@@ -196,22 +230,45 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                 clip_duration = min(max_clip_dur, remaining_duration)
                 clip_duration = max(min_clip_dur, clip_duration)  # Ensure minimum duration
             
-            # Find available segments that haven't been used yet (globally or locally)
-            available_segments = find_available_segments(
-                clip_index, clip_duration, input_clip.duration,
-                global_history=clip_history.get(clip_index, []),
-                local_history=local_clip_history.get(clip_index, [])
-            )
+            # Attempt to find an available segment with a limited retry loop
+            attempts = 0
+            max_attempts = 20
+            available_segments = []
+            while attempts < max_attempts and not available_segments:
+                available_segments = find_available_segments(
+                    clip_index, clip_duration, input_clip.duration,
+                    global_history=None,
+                    local_history=local_clip_history.get(clip_index, [])
+                )
+                if available_segments:
+                    break
+                # Pick another clip index and retry
+                if len(available_clip_indices) > 1:
+                    available_clip_indices.remove(clip_index)  # Remove the failed clip index
+                    clip_index = random.choice(available_clip_indices)
+                    input_clip = input_clips[clip_index]
+                else:
+                    # If we only have one clip left, try to use it anyway
+                    break
+                attempts += 1
             
-            # If no available segments, try another clip
             if not available_segments:
-                # Try again with a different clip
-                j -= 1  # Repeat this iteration
-                continue
-                
-            # Choose a random segment from available ones
+                # If we couldn't find a free segment, try to use any part of the clip
+                if input_clip.duration >= clip_duration:
+                    start_time = random.uniform(0, input_clip.duration - clip_duration)
+                    available_segments = [(start_time, input_clip.duration)]
+                else:
+                    # If the clip is too short, skip it
+                    if progress_callback:
+                        progress_callback(int(clip_progress), f"Skipping clip {j+1}/{num_clips} - too short")
+                    continue
+            
+            # Choose a random segment from available ones with a safety margin so we don't hit EOF
             segment_start, segment_end = random.choice(available_segments)
-            start_time = random.uniform(segment_start, segment_end - clip_duration)
+            max_start = max(segment_start, segment_end - clip_duration - SAFE_MARGIN)
+            if max_start < segment_start:
+                max_start = segment_start  # fallback
+            start_time = random.uniform(segment_start, max_start)
             
             # Record this usage in both global and local history
             used_segment = (start_time, start_time + clip_duration)
@@ -225,20 +282,37 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
             
             # Extract the subclip
             try:
-                subclip = input_clip.subclip(start_time, start_time + clip_duration)
+                # Robust extraction – retry a few times if we get a zero-length clip (metadata edge-cases)
+                retry = 0
+                subclip = None
+                while retry < 5:
+                    sc = input_clip.subclip(start_time, start_time + clip_duration)
+                    if sc.duration >= clip_duration - 0.05:  # accept small drift
+                        subclip = sc
+                        break
+                    # Otherwise pick a new start inside the same segment
+                    start_time = random.uniform(segment_start, max_start)
+                    retry += 1
+                if subclip is None:
+                    raise ValueError("Could not create valid subclip after retries")
                 
                 # Ensure consistent dimensions and padding for all clips
                 processed_clip = ensure_consistent_dimensions(subclip)
                 
                 # Apply AI-powered effects if enabled (but with reduced probability)
-                if use_effects and random.random() < 0.3:  # Only 30% chance of effects
+                if use_effects and intensity_norm > 0 and random.random() < (0.3 + 0.4*intensity_norm):
                     try:
-                        processed_clip = apply_smart_effects(processed_clip, intensity=0.3)
+                        processed_clip = apply_smart_effects(processed_clip, intensity=intensity_norm)
                     except Exception as e:
                         print(f"Error applying effects to clip: {e}")
                 
-                selected_clips.append(processed_clip)
-                total_duration += clip_duration
+                # Verify the clip is valid before adding it
+                if processed_clip is not None and processed_clip.duration > 0:
+                    selected_clips.append(processed_clip)
+                    total_duration += clip_duration
+                else:
+                    print(f"Warning: Invalid processed clip, skipping")
+                    continue
                 
             except Exception as e:
                 print(f"Error processing clip: {e}")
@@ -265,56 +339,97 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                 # Find available segment
                 available_segments = find_available_segments(
                     clip_index, clip_duration, input_clip.duration,
-                    global_history=clip_history.get(clip_index, []),
+                    global_history=None,
                     local_history=local_clip_history.get(clip_index, [])
                 )
                 
+                # If no available segments, break to avoid infinite loop
+                if not available_segments:
+                    if progress_callback:
+                        progress_callback(int(base_progress), "No more available segments, stopping additional clip addition")
+                    break
+                
                 if available_segments:
                     segment_start, segment_end = random.choice(available_segments)
-                    start_time = random.uniform(segment_start, segment_end - clip_duration)
+                    max_start = max(segment_start, segment_end - clip_duration - SAFE_MARGIN)
+                    if max_start < segment_start:
+                        max_start = segment_start  # fallback
+                    start_time = random.uniform(segment_start, max_start)
                     
                     # Extract and process the subclip
                     subclip = input_clip.subclip(start_time, start_time + clip_duration)
                     processed_clip = ensure_consistent_dimensions(subclip)
                     
-                    if use_effects and random.random() < 0.3:
+                    if use_effects and intensity_norm > 0 and random.random() < (0.3 + 0.4*intensity_norm):
                         try:
-                            processed_clip = apply_smart_effects(processed_clip, intensity=0.3)
+                            processed_clip = apply_smart_effects(processed_clip, intensity=intensity_norm)
                         except Exception as e:
                             print(f"Error applying effects to clip: {e}")
                     
-                    selected_clips.append(processed_clip)
-                    total_duration += clip_duration
-                    
-                    # Record usage
-                    used_segment = (start_time, start_time + clip_duration)
-                    if clip_index not in clip_history:
-                        clip_history[clip_index] = []
-                    clip_history[clip_index].append(used_segment)
+                    # Verify the clip is valid before adding it
+                    if processed_clip is not None and processed_clip.duration > 0:
+                        selected_clips.append(processed_clip)
+                        total_duration += clip_duration
+                        
+                        # Record usage
+                        used_segment = (start_time, start_time + clip_duration)
+                        if clip_index not in clip_history:
+                            clip_history[clip_index] = []
+                        clip_history[clip_index].append(used_segment)
+                    else:
+                        print(f"Warning: Invalid processed clip, skipping")
+                        continue
                     
             except Exception as e:
                 print(f"Error adding additional clip: {e}")
                 break
         
-        # If we still don't have enough duration, extend the last clip
-        if total_duration < TARGET_DURATION and selected_clips:
-            try:
-                last_clip = selected_clips[-1]
-                extension_needed = TARGET_DURATION - total_duration
-                if extension_needed > 0:
-                    # Loop the last clip to extend it
-                    extended_clip = loop(last_clip, duration=last_clip.duration + extension_needed)
-                    selected_clips[-1] = extended_clip
-                    total_duration = TARGET_DURATION
-            except Exception as e:
-                print(f"Error extending last clip: {e}")
-        
-        if not selected_clips:
-            if progress_callback:
-                progress_callback(int(base_progress), f"Warning: No valid clips could be extracted for video {i+1}")
+        # If still short after attempts, try to grab an ultra-short slice (<=1s) from random clips
+        ultra_attempts = 0
+        while total_duration < TARGET_DURATION - 0.05 and ultra_attempts < 10:
+            clip_idx = random.randrange(len(input_clips))
+            base_clip = input_clips[clip_idx]
+            seg_len = min(1.0, TARGET_DURATION - total_duration)
+            if base_clip.duration <= seg_len + 0.1:
+                seg_start = 0
             else:
-                print(f"Warning: No valid clips could be extracted for {output_path}")
-            continue
+                seg_start = random.uniform(0, base_clip.duration - seg_len)
+            seg_end = seg_start + seg_len
+            seg = base_clip.subclip(seg_start, seg_end)
+            seg = ensure_consistent_dimensions(seg)
+            if seg.duration > 0:
+                selected_clips.append(seg)
+                total_duration += seg.duration
+            else:
+                ultra_attempts += 1
+                continue
+
+        # Final safety: if still short, loop last clip
+        if total_duration < TARGET_DURATION - 0.05:
+            last_clip = selected_clips[-1]
+            pad_needed = TARGET_DURATION - total_duration
+            padded = loop(last_clip, duration=last_clip.duration + pad_needed)
+            if padded is not None and padded.duration > 0:
+                selected_clips[-1] = padded
+                total_duration = TARGET_DURATION
+        
+        # Ensure we have at least one valid clip
+        if not selected_clips or len(selected_clips) == 0:
+            # Warn and fallback to using the first input video clip
+            if progress_callback:
+                progress_callback(int(base_progress), f"No valid clips for video {i+1}, using fallback clip.")
+            else:
+                print(f"No valid clips for {output_path}, using fallback clip.")
+            # Fallback: take the first clip and loop/subclip to match target duration
+            base_clip = input_clips[0]
+            # Determine subclip duration
+            sub_dur = min(TARGET_DURATION, base_clip.duration)
+            fallback_clip = base_clip.subclip(0, sub_dur)
+            fallback_clip = ensure_consistent_dimensions(fallback_clip)
+            if sub_dur < TARGET_DURATION:
+                fallback_clip = loop(fallback_clip, duration=TARGET_DURATION)
+            selected_clips = [fallback_clip]
+            total_duration = TARGET_DURATION
         
         final_clip = None
 
@@ -324,27 +439,74 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
             if progress_callback:
                 progress_callback(int(effect_progress), f"Applying effects and transitions for video {i+1}/{num_videos}")
             
+            # Ensure we have valid clips before proceeding
+            if not selected_clips or len(selected_clips) == 0:
+                raise ValueError("No valid clips available for concatenation")
+            
+            # Verify all clips are valid before concatenation
+            valid_clips = []
+            for clip in selected_clips:
+                if clip is not None and clip.duration > 0:
+                    valid_clips.append(clip)
+                else:
+                    print(f"Warning: Invalid clip found, skipping")
+            
+            if not valid_clips:
+                raise ValueError("No valid clips available after validation")
+            
+            selected_clips = valid_clips  # Use only valid clips
+            
             # If we're using effects, add simple transitions between clips
-            if use_effects:
-                final_clips = []
-                
-                # Process each clip
+            if use_effects and intensity_norm > 0:
+                # Choose effects pipeline based on style
+                if effects_style == "graincore":
+                    # Hardcore glitchy B&W aesthetic: strong contrast, noise, and frame blending
+                    filter_str = (
+                        "format=gray,"
+                        "eq=contrast=5:brightness=-0.2,"
+                        # heavy static noise
+                        "noise=alls=100:allf=u+random,"
+                        # blending adjacent frames for glitch flicker
+                        "tblend=all_mode=difference:opacity=0.8,"
+                        "format=yuv420p"
+                    )
+                else:
+                    pass  # Graincore effect now applied in FFmpeg stage
+
+                # Classic transitions (MoviePy fades only)
+                processed = []
                 for idx, clip in enumerate(selected_clips):
+                    c = clip
                     if idx == 0:
-                        # First clip gets a fade in
-                        clip = clip.fadein(0.3)
-                    elif idx == len(selected_clips) - 1:
-                        # Last clip gets a fade out
-                        clip = clip.fadeout(0.3)
-                    
-                    final_clips.append(clip)
-                
-                # Simple concatenation with crossfades
-                final_clip = concatenate_videoclips(final_clips, method="compose")
+                        c = c.fx(fadein, 0.4)
+                    if idx == len(selected_clips) - 1:
+                        c = c.fx(fadeout, 0.4)
+                    # Subtle brightness boost for variety
+                    c = colorx(c, 1.03)
+                    processed.append(c)
+
+                # Concatenate with 0.3-second cross-fade between clips
+                final_clip = concatenate_videoclips(processed, method="compose", padding=-0.3)
             else:
                 # Simple concatenation without transitions
                 final_clip = concatenate_videoclips(selected_clips)
             
+            # Apply global speed factor if not 1.0
+            if abs(speed_factor - 1.0) > 0.01:
+                final_clip = final_clip.fx(speedx, speed_factor)
+
+                # If speeding up shortened the clip, pad/loop to ensure 16-s output
+                if final_clip.duration < TARGET_DURATION - 0.05:
+                    try:
+                        pad_needed = TARGET_DURATION - final_clip.duration
+                        # Loop the clip end portion to pad
+                        final_clip = loop(final_clip, duration=final_clip.duration + pad_needed)
+                    except Exception as le:
+                        print(f"Warning: could not loop for padding: {le}")
+                elif final_clip.duration > TARGET_DURATION + 0.05:
+                    # Trim if overshoot
+                    final_clip = final_clip.subclip(0, TARGET_DURATION)
+
             # Check final clip dimensions and ensure they're correct
             final_clip = ensure_consistent_dimensions(final_clip)
             
@@ -386,7 +548,11 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                     txt_clip = create_text_overlay(
                         caption,
                         (final_clip.w, final_clip.h),
-                        position="top",
+                        position=text_position,
+                        font_name=font_name,
+                        bold=bold,
+                        italic=italic,
+                        underline=underline,
                         fontsize=int(final_clip.w * 0.07),  # Scale font to video width
                         color="white",
                         bg_color=(0, 0, 0, 0.6),  # Semi-transparent black
@@ -412,6 +578,49 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                         progress_callback(int(text_progress), f"Error adding text: {e}")
                     else:
                         print(f"Error adding text overlay: {e}")
+            
+            # -------------------------------------------------------------
+            # Transparent overlay video (e.g., animated lyrics)
+            # -------------------------------------------------------------
+            if overlay_video_path:
+                overlay_progress = base_progress + (68 / num_videos)
+                if progress_callback:
+                    progress_callback(int(overlay_progress), f"Adding overlay video to video {i+1}/{num_videos}")
+
+                try:
+                    overlay_clip = VideoFileClip(overlay_video_path, has_mask=True)
+
+                    # Scale overlay to fit within the final clip while PRESERVING aspect ratio.
+                    # Never stretch – only scale up/down uniformly so that it fully fits inside.
+                    if overlay_clip.w != final_clip.w or overlay_clip.h != final_clip.h:
+                        scale_factor = min(final_clip.w / overlay_clip.w, final_clip.h / overlay_clip.h)
+                        # Only resize if scale factor meaningfully differs from 1.0 (avoid tiny math jitter)
+                        if abs(scale_factor - 1.0) > 0.01:
+                            overlay_clip = overlay_clip.resize(scale_factor)
+
+                    # Center the overlay if it does not cover the entire canvas
+                    if overlay_clip.w < final_clip.w or overlay_clip.h < final_clip.h:
+                        overlay_clip = overlay_clip.set_position("center")
+
+                    # Match overlay duration to final clip
+                    if overlay_clip.duration < final_clip.duration - 0.05:
+                        overlay_clip = loop(overlay_clip, duration=final_clip.duration)
+                    elif overlay_clip.duration > final_clip.duration + 0.05:
+                        overlay_clip = overlay_clip.subclip(0, final_clip.duration)
+
+                    overlay_clip = overlay_clip.set_duration(final_clip.duration)
+
+                    # Composite overlay on top of final clip
+                    final_clip = CompositeVideoClip([final_clip, overlay_clip])
+
+                    if progress_callback:
+                        progress_callback(int(overlay_progress), f"Overlay added to video {i+1}/{num_videos}")
+                except Exception as e:
+                    # If anything fails, continue without overlay
+                    if progress_callback:
+                        progress_callback(int(overlay_progress), f"Warning: Failed to apply overlay: {e}")
+                    else:
+                        print(f"Warning: Failed to apply overlay video: {e}")
             
             # Progress update for audio stage
             audio_progress = base_progress + (70 / num_videos)
@@ -455,42 +664,79 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
             if final_clip.w != TARGET_WIDTH or final_clip.h != TARGET_HEIGHT:
                 final_clip = final_clip.resize(width=TARGET_WIDTH, height=TARGET_HEIGHT)
             
-            # Write the final video
+            # Write the final video to temp file first (no heavy effects yet)
             try:
-                # Create a callback for write_videofile progress
-                def writing_callback(t):
+                tmp_no_fx = tempfile.mktemp(suffix="_nofx.mp4")
+                final_clip.write_videofile(
+                    tmp_no_fx,
+                    codec="libx264",
+                    audio_codec="aac",
+                    preset="fast",
+                    threads=4,
+                    logger=None
+                )
+
+                # Apply FFmpeg effects if requested
+                if use_effects and intensity_norm > 0:
                     if progress_callback:
-                        # Map t from 0-duration to render_progress-(render_progress+20)
-                        write_pct = min(100, int(render_progress + (t / final_clip.duration) * (20 / num_videos)))
-                        progress_callback(write_pct, f"Rendering video {i+1}/{num_videos}: {int((t / final_clip.duration) * 100)}%")
-                
-                # First try without callback which might not be supported in some MoviePy versions
-                try:
-                    final_clip.write_videofile(
-                        output_path,
-                        codec="libx264",
-                        audio_codec="aac",
-                        preset="fast",
-                        threads=4,
-                        logger=None
-                    )
-                except TypeError as e:
-                    # If first attempt fails with TypeError, it might be an old MoviePy version
-                    if "unexpected keyword argument" in str(e):
-                        final_clip.write_videofile(
-                            output_path,
-                            codec="libx264",
-                            audio_codec="aac",
-                            preset="fast",
-                            threads=4
-                        )
-                    else:
-                        raise
-                
-                if progress_callback:
-                    progress_callback(int(base_progress + (90 / num_videos)), f"Video {i+1}/{num_videos} complete!")
+                        progress_callback(int(base_progress + (92 / num_videos)), "Applying FFmpeg effects...")
+
+                    def build_filter(style, t):
+                        """Return FFmpeg filter string based on style and normalized intensity t (0-1)."""
+                        t = max(0.0, min(t, 1.0))
+                        if t < 0.05:  # practically no effect
+                            return None
+
+                        if style == "classic":
+                            brightness = round(0.0 + 0.10 * t, 3)  # up to +0.10
+                            saturation = round(1.0 + 1.5 * t, 2)   # up to 2.5x
+                            return f"eq=brightness={brightness}:saturation={saturation}"
+
+                        if style == "graincore":
+                            contrast = round(1.0 + 4.0 * t, 2)      # 1-5
+                            brightness = round(-0.2 * t, 2)         # 0 to -0.2
+                            noise = int(20 + 180 * t)               # 20-200
+                            opacity = round(0.1 + 0.8 * t, 2)       # 0.1-0.9
+                            return (
+                                f"format=gray,eq=contrast={contrast}:brightness={brightness},"
+                                f"noise=alls={noise}:allf=u+random,"  # static flicker
+                                f"tblend=all_mode=difference:opacity={opacity},format=yuv420p"
+                            )
+
+                        # Fallback minimal adjustment
+                        return "eq=brightness=0:saturation=1"
+
+                    filter_str = build_filter(effects_style, intensity_norm)
+
+                    if filter_str is None:
+                        # No effect needed, simply move original file
+                        shutil.move(tmp_no_fx, output_path)
+                        if progress_callback:
+                            progress_callback(int(base_progress + (98 / num_videos)), f"Video {i+1}/{num_videos} complete!")
+                        output_paths.append(output_path)
+                        continue
+
+                    tmp_with_fx = tempfile.mktemp(suffix="_fx.mp4")
+                    ffmpeg_cmd = [
+                        "ffmpeg",
+                        "-y",
+                        "-i", tmp_no_fx,
+                        "-vf", filter_str,
+                        "-c:v", "libx264",
+                        "-preset", "fast",
+                        "-crf", "18",
+                        "-c:a", "copy",
+                        tmp_with_fx
+                    ]
+                    subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                    shutil.move(tmp_with_fx, output_path)
+                    os.remove(tmp_no_fx)
                 else:
-                    print(f"Video {output_path} is ready!")
+                    shutil.move(tmp_no_fx, output_path)
+
+                if progress_callback:
+                    progress_callback(int(base_progress + (98 / num_videos)), f"Video {i+1}/{num_videos} complete!")
                 output_paths.append(output_path)
             except Exception as e:
                 if progress_callback:
@@ -554,7 +800,9 @@ def apply_smart_effects(clip, intensity=0.3):
         print(f"Effect failed, returning original clip: {e}")
         return clip
 
-def create_text_overlay(text, clip_size, position="top", font="Arial Bold", fontsize=70, color="white", bg_color=None, stroke_color="black", stroke_width=2):
+def create_text_overlay(text, clip_size, position="top", *,
+                        font_name="Arial", bold=False, italic=False, underline=False,
+                        fontsize=70, color="white", bg_color=None, stroke_color="black", stroke_width=2):
     """
     Create a text overlay for a video clip in a style common for short-form content.
     
@@ -562,7 +810,10 @@ def create_text_overlay(text, clip_size, position="top", font="Arial Bold", font
         text: Text to display
         clip_size: (width, height) of the video clip
         position: Where to position the text ("bottom", "center", "top")
-        font: Font to use
+        font_name: Font name to use
+        bold: Whether to use bold font
+        italic: Whether to use italic font
+        underline: Whether to use underline font
         fontsize: Font size
         color: Font color
         bg_color: Background color (None for transparent)
@@ -573,74 +824,63 @@ def create_text_overlay(text, clip_size, position="top", font="Arial Bold", font
         TextClip object ready to be composited
     """
     try:
-        # First try with regular method (requires ImageMagick)
-        txt = TextClip(
-            text, 
-            font=font, 
-            fontsize=fontsize, 
-            color=color,
-            stroke_color=stroke_color,
-            stroke_width=stroke_width,
-            method='caption',
-            align='center',
-            size=(clip_size[0] - 40, None)  # Allow wrapping with margin
-        )
-    except Exception as e:
-        # If ImageMagick is not available, fall back to simpler text method
-        print(f"Warning: Using fallback text method due to: {str(e)}")
-        try:
-            # Try without stroke and with default method
-            txt = TextClip(
-                text, 
-                font=font,  # Already using "Arial Bold" from default params 
-                fontsize=fontsize, 
-                color=color,
-                method='label',
-                align='center',
-                size=(clip_size[0] - 60, None)  # Narrower to ensure it fits on the screen
-            )
-        except Exception as e2:
-            # Last resort - simplest possible text clip
-            print(f"Warning: Using simplest text method due to: {str(e2)}")
+        # Build candidate fonts list based on style flags
+        candidates = []
+        base = font_name
+        if bold and italic:
+            candidates += [f"{base}-BoldItalic", f"{base} Bold Italic", f"{base}-BoldOblique"]
+        if bold and not italic:
+            candidates += [f"{base}-Bold", f"{base} Bold"]
+        if italic and not bold:
+            candidates += [f"{base}-Italic", f"{base} Italic", f"{base}-Oblique"]
+        # Always add base font last as fallback
+        candidates.append(base)
+
+        txt = None
+        last_exc = None
+        for cand_font in candidates:
             try:
                 txt = TextClip(
                     text,
-                    font="Arial-Bold",  # Explicitly try another bold font name format
+                    font=cand_font,
                     fontsize=fontsize,
-                    color=color
+                    color=color,
+                    stroke_color=stroke_color,
+                    stroke_width=stroke_width,
+                    method='caption',
+                    align='center',
+                    size=(clip_size[0] - 40, None)
                 )
-            except:
-                # If all text methods fail, return None instead of erroring
-                print("Error: Unable to create text overlay. Skipping.")
-                return None
-    
-    # If text creation succeeded, proceed with positioning
-    try:
-        # Add background if specified
-        if bg_color:
-            # Create slightly larger background with padding
-            padding = 15
-            bg_width = txt.w + padding * 2
-            bg_height = txt.h + padding * 2
-            bg = ColorClip(size=(bg_width, bg_height), color=bg_color)
-            
-            # Composite text over background
-            txt = CompositeVideoClip([
-                bg,
-                txt.set_position('center')
-            ])
-        
-        # Position the text
-        if position == "bottom":
-            y_position = clip_size[1] - txt.h - 50  # 50px from bottom
-            txt = txt.set_position(("center", y_position))
-        elif position == "top":
-            # Position text in the center of the top half of the screen
-            y_position = clip_size[1] / 4 - txt.h / 2  # Center in top half
-            txt = txt.set_position(("center", y_position))
-        else:  # center
-            txt = txt.set_position("center")
-        
+                break  # Success
+            except Exception as e:
+                last_exc = e
+                continue
+        if txt is None:
+            raise last_exc if last_exc else Exception("Unable to create TextClip with provided font")
+
+        # Add underline if requested
+        if underline:
+            try:
+                line_height = max(4, int(fontsize * 0.08))
+                underline_clip = ColorClip(size=(txt.w, line_height), color=color)
+                underline_clip = underline_clip.set_position(("center", txt.h - int(line_height/2)))
+                txt = CompositeVideoClip([txt, underline_clip], size=(txt.w, txt.h + line_height))
+            except Exception as ue:
+                print(f"Warning: underline failed: {ue}")
+
+        # Positioning within thirds
+        try:
+            if position in ("bottom", "lower"):
+                y_pos = clip_size[1] * 5 / 6 - txt.h / 2  # center of bottom third
+                txt = txt.set_position(("center", y_pos))
+            elif position in ("top", "upper"):
+                y_pos = clip_size[1] / 6 - txt.h / 2  # center of top third
+                txt = txt.set_position(("center", y_pos))
+            else:  # center
+                txt = txt.set_position("center")
+        except Exception as pe:
+            print(f"Warning positioning text: {pe}")
+
         return txt
     except Exception as e:
         print(f"Error positioning text: {str(e)}")
@@ -924,6 +1164,14 @@ def find_available_segments(clip_index, desired_duration, clip_duration,
         available.append((merged[-1][1], clip_duration - desired_duration))
     
     return available
+
+def apply_graincore_effect(clip):
+    """Placeholder graincore effect: add slight noise / BW flicker."""
+    try:
+        noisy = clip.fx(colorx, 0.9).fx(blackwhite)
+        return noisy
+    except Exception:
+        return clip
 
 if __name__ == "__main__":
     generate_batch()

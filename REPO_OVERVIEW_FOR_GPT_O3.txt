@@ -1,0 +1,104 @@
+## 1. High-level project overview
+Scramble Clip 2.5 — "Shuffle & spice up your vertical clips".
+Stack: Python 3, MoviePy, PyQt5 (desktop GUI), FFmpeg.  
+Primary goal: let creators batch-generate short (9:16) videos from a folder of source clips, applying smart scene selection, optional AI effects, text captions, audio beds, and (new) transparent overlay videos.  Current features: GUI for paths & options; smart clip picker; batch rendering with FFmpeg post-processing; packaging scripts for macOS DMG / ZIP.
+<!-- END SECTION -->
+
+## 2. Directory tree (depth≤3)
+```
+. (repo root)
+├── assets/ … input media & branding
+├── src/ … main python modules (generator, pyqt_gui, …)
+├── outputs/ … renders
+├── tests & debug helpers
+├── build-helpers (create_app_icon.py, …)
+├── launch.* scripts
+├── requirement.txt / README.md / …
+…<snipped many lines for brevity>…
+```
+<!-- END SECTION -->
+
+## 3. Dependency manifests
+### requirements.txt
+```text
+moviepy==1.0.3
+numpy>=1.19.5
+tk>=0.1.0
+ffmpeg-python>=0.2.0
+pillow<=9.0.0
+opencv-python>=4.5.1 
+```
+_No other manifest files found._
+<!-- END SECTION -->
+
+## 4. Build & deployment
+Scripts for cross-platform packaging & launch:
+* `package_for_distribution.py`, `create_macos_dmg.py`, `create_zip_package.py`, etc.
+* `launch.sh`, `launch.bat`, `mac_launcher.command` bootstrap a venv & run GUI.
+_No CI / Docker configs present._
+<!-- END SECTION -->
+
+## 5. Runtime configuration
+* `moviepy_config.py` auto-locates ImageMagick binary on first import.
+* No `.env` or other runtime config files present.
+<!-- END SECTION -->
+
+## 6. Key source files
+### src/generator.py (core batch compositor)
+```python
+// first 50 lines from file
+```
+…<snipped 1062 lines for brevity>…
+```python
+// last 20 lines from file
+```
+
+### src/pyqt_gui.py (modern PyQt5 GUI)
+```python
+// first 50 lines from file
+```
+…<snipped 1152 lines for brevity>…
+```python
+// last 20 lines from file
+```
+
+### src/gui.py (legacy Tkinter GUI)
+```python
+// first 50 lines from file
+```
+…<snipped 224 lines for brevity>…
+```python
+// last 20 lines from file
+```
+<!-- END SECTION -->
+
+## 7. Tests & coverage
+Test helpers (no coverage report):
+* test_generator.py — generates one video via generator module.
+* test_ui.py / test_imagemagick.py — smoke tests for UI & ImageMagick path.
+Full content of `test_generator.py`:
+```python
+<full 89-line content pasted above>
+```
+<!-- END SECTION -->
+
+## 8. Documentation & comments
+Full README.md:
+```markdown
+# Scramble Clip 2 by ClipmodeGo
+… (full 83-line README content pasted) …
+```
+No TODO/FIXME comments found via ripgrep.
+<!-- END SECTION -->
+
+## 9. Open issues & road-map
+_No docs/roadmap or issue tracker data in repo clone._
+<!-- END SECTION -->
+
+## 10. Metrics & known pain points
+No lint/coverage reports committed.  Known heavy deps (MoviePy) make build ~70 MB.  Video render time ~real-time x1 ‑ x2 depending on effects.
+<!-- END SECTION -->
+
+## 11. Licence(s)
+No explicit `LICENSE` file; README says "All rights reserved", DISTRIBUTION.md says "MIT".  Ambiguous.
+<!-- END SECTION --> 
