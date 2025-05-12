@@ -270,9 +270,13 @@ class ScrambleClipGUI(QMainWindow):
         # Create video lists
         lists_layout = QHBoxLayout()
         
-        # Input videos list
+        # Input videos list (collapsible)
         input_group = StyledGroupBox("Input Videos")
-        input_layout = QVBoxLayout()
+        input_group.setCheckable(True)
+        input_group.setChecked(False)
+        # Wrap content in a container widget
+        input_content = QWidget()
+        input_layout = QVBoxLayout(input_content)
         
         self.input_video_list = QListWidget()
         self.input_video_list.setStyleSheet(f"""
@@ -298,12 +302,23 @@ class ScrambleClipGUI(QMainWindow):
         input_buttons.addWidget(remove_input_btn)
         
         input_layout.addLayout(input_buttons)
-        input_group.setLayout(input_layout)
+        # Embed content widget into the group box
+        group_layout = QVBoxLayout()
+        group_layout.addWidget(input_content)
+        input_group.setLayout(group_layout)
+        # Default collapsed
+        input_content.setVisible(False)
+        # Toggle visibility when group is checked/unchecked
+        input_group.toggled.connect(input_content.setVisible)
         lists_layout.addWidget(input_group)
         
-        # Output videos list
+        # Output videos list (collapsible)
         output_group = StyledGroupBox("Output Videos")
-        output_layout = QVBoxLayout()
+        output_group.setCheckable(True)
+        output_group.setChecked(False)
+        # Wrap content in a container widget
+        output_content = QWidget()
+        output_layout = QVBoxLayout(output_content)
         
         self.output_video_list = QListWidget()
         self.output_video_list.setStyleSheet(f"""
@@ -329,7 +344,14 @@ class ScrambleClipGUI(QMainWindow):
         output_buttons.addWidget(remove_output_btn)
         
         output_layout.addLayout(output_buttons)
-        output_group.setLayout(output_layout)
+        # Embed content widget into the group box
+        out_group_layout = QVBoxLayout()
+        out_group_layout.addWidget(output_content)
+        output_group.setLayout(out_group_layout)
+        # Default collapsed
+        output_content.setVisible(False)
+        # Toggle visibility when group is toggled
+        output_group.toggled.connect(output_content.setVisible)
         lists_layout.addWidget(output_group)
         
         container.addLayout(lists_layout)
