@@ -136,8 +136,8 @@ class ScrambleClipGUI(QMainWindow):
         # Create main layout
         main_layout = QVBoxLayout()
         
-        # Create header with logo image
-        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "scramble clip 2.5 logo 222 for build.png")
+        # Create header with updated logo image
+        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "scramble clip logo 4.png")
         header = QLabel()
         pixmap = QPixmap(logo_path)
         # Scale banner to 10% of original size for a 90% reduction
@@ -455,7 +455,17 @@ class ScrambleClipGUI(QMainWindow):
         speed_label = QLabel("Speed:")
         speed_label.setStyleSheet(f"color: {COLORS['text']}; padding: 5px;")
         self.speed_combo = QComboBox()
-        self.speed_combo.addItems(["Normal (1.0x)", "1.25x", "1.5x", "1.75x"])
+        # Extended speed options including up to 2.75x
+        self.speed_combo.addItems([
+            "Normal (1.0x)",
+            "1.25x",
+            "1.5x",
+            "1.75x",
+            "2.0x",
+            "2.25x",
+            "2.5x",
+            "2.75x"
+        ])
         self.speed_combo.setStyleSheet(f"""
             background-color: {COLORS['darker']};
             color: {COLORS['text']};
@@ -1101,7 +1111,11 @@ class ScrambleClipGUI(QMainWindow):
             0: 1.0,
             1: 1.25,
             2: 1.5,
-            3: 1.75
+            3: 1.75,
+            4: 2.0,
+            5: 2.25,
+            6: 2.5,
+            7: 2.75
         }
         return mapping.get(self.speed_combo.currentIndex(), 1.0)
 
