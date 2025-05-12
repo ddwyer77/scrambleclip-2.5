@@ -140,10 +140,10 @@ class ScrambleClipGUI(QMainWindow):
         logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "scramble clip logo 4.png")
         header = QLabel()
         pixmap = QPixmap(logo_path)
-        # Scale banner to 10% of original size for a 90% reduction
+        # Scale banner to 5% of original size for a 95% reduction (half the previous size)
         if not pixmap.isNull():
-            new_width = int(pixmap.width() * 0.1)
-            new_height = int(pixmap.height() * 0.1)
+            new_width = int(pixmap.width() * 0.05)
+            new_height = int(pixmap.height() * 0.05)
             scaled_pixmap = pixmap.scaled(new_width, new_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             header.setPixmap(scaled_pixmap)
         else:
