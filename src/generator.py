@@ -678,113 +678,94 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                 final_clip = final_clip.resize(width=TARGET_WIDTH, height=TARGET_HEIGHT)
             
             # Write the final video to temp file first (no heavy effects yet)
-            try:
-                tmp_no_fx = tempfile.mktemp(suffix="_nofx.mp4")
-                final_clip.write_videofile(
-                    tmp_no_fx,
-                    codec="libx264",
-                    audio_codec="aac",
-                    preset="fast",
-                    threads=4,
-                    logger=None
-                )
+            tmp_base = tempfile.mktemp(suffix="_base.mp4")
+            # 1) Write MoviePy result (audio included)
+            final_clip.write_videofile(
+                tmp_base,
+                codec="libx264",
+                audio_codec="aac",
+                preset="fast",
+                threads=4,
+                logger=None
+            )
 
-                # Apply FFmpeg effects if requested
-                if use_effects and intensity_norm > 0:
-                    if progress_callback:
-                        progress_callback(int(base_progress + (92 / num_videos)), "Applying FFmpeg effects...")
+            current_src = tmp_base  # path that we will progressively replace
 
-                    def build_filter(style, t):
-                        """Return FFmpeg filter string based on style and normalized intensity t (0-1)."""
-                        t = max(0.0, min(t, 1.0))
-                        if t < 0.05:  # practically no effect
-                            return None
+            # 2) Optional FFmpeg visual effects
+            if use_effects and intensity_norm > 0:
+                if progress_callback:
+                    progress_callback(int(base_progress + (92 / num_videos)), "Applying FFmpeg effects…")
 
-                        if style == "classic":
-                            brightness = round(0.0 + 0.10 * t, 3)  # up to +0.10
-                            saturation = round(1.0 + 1.5 * t, 2)   # up to 2.5x
-                            return f"eq=brightness={brightness}:saturation={saturation}"
+                def _build_filter(style, t):
+                    t = max(0.0, min(t, 1.0))
+                    if t < 0.05:
+                        return None
+                    if style == "classic":
+                        b = round(0.0 + 0.10 * t, 3)
+                        s = round(1.0 + 1.5 * t, 2)
+                        return f"eq=brightness={b}:saturation={s}"
+                    if style == "graincore":
+                        c = round(1.0 + 4.0 * t, 2)
+                        b = round(-0.2 * t, 2)
+                        n = int(20 + 180 * t)
+                        o = round(0.1 + 0.8 * t, 2)
+                        return (
+                            f"format=gray,eq=contrast={c}:brightness={b},"
+                            f"noise=alls={n}:allf=u+random,"
+                            f"tblend=all_mode=difference:opacity={o},format=yuv420p"
+                        )
+                    return "eq=brightness=0:saturation=1"
 
-                        if style == "graincore":
-                            contrast = round(1.0 + 4.0 * t, 2)      # 1-5
-                            brightness = round(-0.2 * t, 2)         # 0 to -0.2
-                            noise = int(20 + 180 * t)               # 20-200
-                            opacity = round(0.1 + 0.8 * t, 2)       # 0.1-0.9
-                            return (
-                                f"format=gray,eq=contrast={contrast}:brightness={brightness},"
-                                f"noise=alls={noise}:allf=u+random,"  # static flicker
-                                f"tblend=all_mode=difference:opacity={opacity},format=yuv420p"
-                            )
-
-                        # Fallback minimal adjustment
-                        return "eq=brightness=0:saturation=1"
-
-                    filter_str = build_filter(effects_style, intensity_norm)
-
-                    if filter_str is None:
-                        # No effect needed, simply move original file
-                        shutil.move(tmp_no_fx, output_path)
-                        if progress_callback:
-                            progress_callback(int(base_progress + (98 / num_videos)), f"Video {i+1}/{num_videos} complete!")
-                        output_paths.append(output_path)
-                        continue
-
-                    tmp_with_fx = tempfile.mktemp(suffix="_fx.mp4")
-                    ffmpeg_cmd = [
-                        "ffmpeg",
-                        "-y",
-                        "-i", tmp_no_fx,
-                        "-vf", filter_str,
-                        "-c:v", "libx264",
-                        "-preset", "fast",
-                        "-crf", "18",
+                filt = _build_filter(effects_style, intensity_norm)
+                if filt:
+                    tmp_fx = tempfile.mktemp(suffix="_fx.mp4")
+                    cmd_fx = [
+                        "ffmpeg", "-y", "-i", current_src,
+                        "-vf", filt,
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                         "-c:a", "copy",
-                        tmp_with_fx
+                        tmp_fx
                     ]
-                    subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(cmd_fx, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    os.remove(current_src)
+                    current_src = tmp_fx
 
-                    shutil.move(tmp_with_fx, output_path)
-                    os.remove(tmp_no_fx)
-                else:
-                    shutil.move(tmp_no_fx, output_path)
+            # 3) Transparent overlay via FFmpeg (always handled here)
+            if overlay_video_path:
+                ov_progress = base_progress + (95 / num_videos)
+                if progress_callback:
+                    progress_callback(int(ov_progress), f"Compositing overlay for video {i+1}/{num_videos}…")
 
-                if progress_callback:
-                    progress_callback(int(base_progress + (98 / num_videos)), f"Video {i+1}/{num_videos} complete!")
-                output_paths.append(output_path)
-            except Exception as e:
-                if progress_callback:
-                    progress_callback(int(render_progress), f"Error writing video file: {e}. Trying simplifier method...")
-                else:
-                    print(f"Error writing video file {output_path}: {e}")
-                try:
-                    # Try a simpler approach if the first attempt fails
-                    if progress_callback:
-                        progress_callback(int(render_progress), f"Using simplified render settings...")
-                    else:
-                        print("Trying with simpler options...")
-                    # Ensure we still include audio when falling back to MoviePy defaults
-                    final_clip.write_videofile(
-                        output_path,
-                        codec="libx264",
-                        audio_codec="aac",
-                        preset="fast",
-                        threads=4,
-                        logger=None
-                    )
-                    output_paths.append(output_path)
-                except Exception as e2:
-                    if progress_callback:
-                        progress_callback(int(render_progress), f"Failed again: {e2}")
-                    else:
-                        print(f"Failed again: {e2}")
-                    
+                tmp_ov = tempfile.mktemp(suffix="_ov.mp4")
+                cmd_ov = [
+                    "ffmpeg", "-y",
+                    "-i", current_src,
+                    "-i", overlay_video_path,
+                    "-filter_complex",
+                    "[1:v]format=rgba,scale=1080:1920[ov];[0:v][ov]overlay=0:0:format=auto,format=yuv420p",
+                    "-map", "0:a?",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-c:a", "aac",
+                    "-shortest",
+                    tmp_ov
+                ]
+                subprocess.run(cmd_ov, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                os.remove(current_src)
+                current_src = tmp_ov
+
+            # 4) Move final file to destination path
+            shutil.move(current_src, output_path)
+
+            if progress_callback:
+                progress_callback(int(base_progress + (98 / num_videos)), f"Video {i+1}/{num_videos} complete!")
+            output_paths.append(output_path)
         except Exception as e:
             if progress_callback:
                 progress_callback(int(base_progress), f"Error creating final clip: {e}")
             else:
                 print(f"Error creating final clip: {e}")
-                import traceback
-                traceback.print_exc()
+            import traceback
+            traceback.print_exc()
         
         # Clean up memory
         if final_clip:
