@@ -579,62 +579,6 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                     else:
                         print(f"Error adding text overlay: {e}")
             
-            # -------------------------------------------------------------
-            # Transparent overlay video (e.g., animated lyrics)
-            # -------------------------------------------------------------
-            if overlay_video_path:
-                overlay_progress = base_progress + (68 / num_videos)
-                if progress_callback:
-                    progress_callback(int(overlay_progress), f"Adding overlay video to video {i+1}/{num_videos}")
-
-                try:
-                    # Attempt to load the overlay normally first. Some .mov files fail when forcing "has_mask=True" even
-                    # when they do not actually contain an alpha/mask stream. We try a regular load, and only retry with
-                    # has_mask=True if the first attempt indicates there *is* a mask track. This avoids the "failed to read
-                    # the first frame" error that causes us to fall back to simplified rendering and subsequently drop the
-                    # user-supplied audio.
-                    try:
-                        overlay_clip = VideoFileClip(overlay_video_path)
-                    except Exception:
-                        # As a last-ditch attempt, retry requesting the mask explicitly. If this also fails we will skip the
-                        # overlay altogether so the rest of the pipeline (and the audio) still succeeds.
-                        overlay_clip = VideoFileClip(overlay_video_path, has_mask=True)
-                    
-                    if overlay_clip is None:
-                        raise ValueError("Unable to load overlay video")
-
-                    # Scale overlay to fit within the final clip while PRESERVING aspect ratio.
-                    # Never stretch – only scale up/down uniformly so that it fully fits inside.
-                    if overlay_clip.w != final_clip.w or overlay_clip.h != final_clip.h:
-                        scale_factor = min(final_clip.w / overlay_clip.w, final_clip.h / overlay_clip.h)
-                        # Only resize if scale factor meaningfully differs from 1.0 (avoid tiny math jitter)
-                        if abs(scale_factor - 1.0) > 0.01:
-                            overlay_clip = overlay_clip.resize(scale_factor)
-
-                    # Center the overlay if it does not cover the entire canvas
-                    if overlay_clip.w < final_clip.w or overlay_clip.h < final_clip.h:
-                        overlay_clip = overlay_clip.set_position("center")
-
-                    # Match overlay duration to final clip
-                    if overlay_clip.duration < final_clip.duration - 0.05:
-                        overlay_clip = loop(overlay_clip, duration=final_clip.duration)
-                    elif overlay_clip.duration > final_clip.duration + 0.05:
-                        overlay_clip = overlay_clip.subclip(0, final_clip.duration)
-
-                    overlay_clip = overlay_clip.set_duration(final_clip.duration)
-
-                    # Composite overlay on top of final clip
-                    final_clip = CompositeVideoClip([final_clip, overlay_clip])
-
-                    if progress_callback:
-                        progress_callback(int(overlay_progress), f"Overlay added to video {i+1}/{num_videos}")
-                except Exception as e:
-                    # If anything fails, continue without overlay
-                    if progress_callback:
-                        progress_callback(int(overlay_progress), f"Warning: Failed to apply overlay: {e}")
-                    else:
-                        print(f"Warning: Failed to apply overlay video: {e}")
-            
             # Progress update for audio stage
             audio_progress = base_progress + (70 / num_videos)
             if progress_callback:
