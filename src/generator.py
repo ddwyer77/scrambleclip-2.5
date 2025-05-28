@@ -588,7 +588,20 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                     progress_callback(int(overlay_progress), f"Adding overlay video to video {i+1}/{num_videos}")
 
                 try:
-                    overlay_clip = VideoFileClip(overlay_video_path, has_mask=True)
+                    # Attempt to load the overlay normally first. Some .mov files fail when forcing "has_mask=True" even
+                    # when they do not actually contain an alpha/mask stream. We try a regular load, and only retry with
+                    # has_mask=True if the first attempt indicates there *is* a mask track. This avoids the "failed to read
+                    # the first frame" error that causes us to fall back to simplified rendering and subsequently drop the
+                    # user-supplied audio.
+                    try:
+                        overlay_clip = VideoFileClip(overlay_video_path)
+                    except Exception:
+                        # As a last-ditch attempt, retry requesting the mask explicitly. If this also fails we will skip the
+                        # overlay altogether so the rest of the pipeline (and the audio) still succeeds.
+                        overlay_clip = VideoFileClip(overlay_video_path, has_mask=True)
+                    
+                    if overlay_clip is None:
+                        raise ValueError("Unable to load overlay video")
 
                     # Scale overlay to fit within the final clip while PRESERVING aspect ratio.
                     # Never stretch – only scale up/down uniformly so that it fully fits inside.
@@ -749,7 +762,15 @@ def generate_batch(input_videos, audio_files=None, num_videos=5, min_clips=10, m
                         progress_callback(int(render_progress), f"Using simplified render settings...")
                     else:
                         print("Trying with simpler options...")
-                    final_clip.write_videofile(output_path)
+                    # Ensure we still include audio when falling back to MoviePy defaults
+                    final_clip.write_videofile(
+                        output_path,
+                        codec="libx264",
+                        audio_codec="aac",
+                        preset="fast",
+                        threads=4,
+                        logger=None
+                    )
                     output_paths.append(output_path)
                 except Exception as e2:
                     if progress_callback:
